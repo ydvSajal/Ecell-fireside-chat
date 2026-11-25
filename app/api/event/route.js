@@ -3,7 +3,7 @@ import { after, NextResponse } from 'next/server';
 import { changeState, readState } from '../../../lib/store';
 import { cookieFor, passwordHash, sameSecret, sessionFor, signIn, tokenKey, validPassword } from '../../../lib/auth';
 import { analyse, testGemini } from '../../../lib/analysis';
-import { customSlots, optionKey, questionFormat, rankCount, responseStats, themeCandidates } from '../../../lib/responses';
+import { customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount, responseStats, themeCandidates } from '../../../lib/responses';
 import { geminiCredentials, geminiSettings, saveGeminiKey } from '../../../lib/settings';
 
 export const runtime = 'nodejs';
@@ -33,6 +33,13 @@ function initialsFor(name) {
 const badge = ({ id, name, avatar }) => ({ id, avatar, initials: initialsFor(name) });
 const viewGuest = guest => ({ ...badge(guest), name: guest.name, joined: guest.joined, enabled: guest.enabled });
 
+function initiativeFor(round, id) {
+  if (!isInitiativeQuestion(round.question)) return {};
+  if (round.commitments?.[id]) return round.commitments[id];
+  const [initiative, ...steps] = round.points?.[id] || [];
+  return { initiative: initiative || round.answers[id] || '', steps };
+}
+
 function roundView(round, show, guests = []) {
   if (!round) return null;
   const entries = Object.entries(round.answers);
@@ -40,6 +47,7 @@ function roundView(round, show, guests = []) {
   const answers = show ? entries.map(([id, text]) => ({
     id, text, avatar: round.avatars[id] ?? 0, initials: initials.get(id),
     ranking: round.rankings?.[id], selections: round.selections?.[id], points: round.points?.[id],
+    ...initiativeFor(round, id),
   })) : [];
   return {
     id: round.id, question: round.question, status: round.status, live: round.live, count: entries.length,
@@ -85,6 +93,7 @@ export async function GET(req) {
         ranking: guest && round ? round.rankings?.[guest.id] || [] : [],
         selections: guest && round ? round.selections?.[guest.id] || [] : [],
         points: guest && round ? round.points?.[guest.id] || [] : [],
+        ...(guest && round ? initiativeFor(round, guest.id) : {}),
       });
     }
     const joined = guests.filter(guest => guest.joined);
@@ -367,6 +376,17 @@ export async function POST(req) {
           const selections = ballot(round.question, body.selections, false);
           (round.selections ??= {})[guest.id] = selections;
           text = selections.join('\n');
+        } else if (isInitiativeQuestion(round.question)) {
+          // An older guest tab can still submit its points as a title followed by steps.
+          const legacy = !Object.hasOwn(body, 'initiative') && Array.isArray(body.points);
+          const input = legacy ? body.points : body.steps;
+          const steps = Array.isArray(input) ? input.map(value => entered(value, 500)).filter(Boolean) : [];
+          const initiative = legacy ? steps.shift() : entered(body.initiative, 500);
+          check(initiative && initiative.length <= 500, 'Enter your innovation initiative in up to 500 characters.');
+          check((legacy || steps.length >= 1) && steps.length <= 5 && steps.every(step => step.length <= 500),
+            'Enter one to five steps of up to 500 characters each.');
+          (round.commitments ??= {})[guest.id] = { initiative, steps };
+          text = [initiative, ...steps].join('\n');
         } else if (format === 'points') {
           const points = Array.isArray(body.points) ? body.points.map(point => entered(point, 500)).filter(Boolean) : [];
           check(points.length >= 1 && points.length <= 5 && points.every(point => point.length <= 500),

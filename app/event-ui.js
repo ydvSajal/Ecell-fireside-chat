@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { customSlots, optionKey, questionFormat, rankCount } from '../lib/responses';
+import { customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount } from '../lib/responses';
 
 const eventTitle = 'Corporate Innovation Action Lab';
 const avatarColors = [
@@ -135,6 +135,7 @@ function GuestRound({ data, event }) {
   const [selectionDraft, setSelectionDraft] = useState(null);
   const [customRows, setCustomRows] = useState(null);
   const [pointsDraft, setPointsDraft] = useState(null);
+  const [initiativeDraft, setInitiativeDraft] = useState(null);
   const ranking = rankingDraft ?? data.ranking ?? [];
   const selections = selectionDraft ?? data.selections ?? [];
   const rows = customRows ?? (format === 'ranking' ? data.ranking : data.selections)?.filter(item => !options.includes(item)) ?? [];
@@ -147,13 +148,18 @@ function GuestRound({ data, event }) {
   }
   const choices = [...uniqueChoices.values()];
   const ranks = round ? rankCount(round.question) : 0;
+  const initiativeQuestion = round && isInitiativeQuestion(round.question);
+  const initiative = initiativeDraft ?? data.initiative ?? '';
+  const steps = pointsDraft ?? data.steps ?? [];
   const points = pointsDraft ?? (data.points?.length ? data.points : ['']);
   const previousCustom = Boolean(options.length && answer && !options.includes(answer));
   const customSelected = useCustomAnswer ?? previousCustom;
   const current = customSelected ? customDraft ?? (previousCustom ? answer : '') : draft ?? answer;
   const ready = format === 'ranking' ? ranking.length === ranks : format === 'multi' ? selections.length > 0
-    : format === 'points' ? points.some(point => point.trim()) : Boolean(current.trim());
-  const unchanged = format === 'ranking' ? !rankingDraft : format === 'multi' ? !selectionDraft : format === 'points' ? !pointsDraft : current === answer;
+    : initiativeQuestion ? Boolean(initiative.trim()) && steps.some(step => step.trim())
+      : format === 'points' ? points.some(point => point.trim()) : Boolean(current.trim());
+  const unchanged = format === 'ranking' ? !rankingDraft : format === 'multi' ? !selectionDraft
+    : format === 'points' ? !pointsDraft && initiativeDraft === null : current === answer;
   function editCustom(index, value) {
     const previous = rows[index]?.trim();
     const updated = Array.from({ length: slots }, (_, i) => i === index ? value : rows[i] || '');
@@ -172,13 +178,13 @@ function GuestRound({ data, event }) {
       {round.status === 'revealed' ? <div className="entry-status">
         <p>Responses are closed. Look at the projector for the results.</p>
         {answer && <div className="saved-answer"><strong>Your answer</strong>
-          <AnswerContent answer={{ text: answer, points: data.points, ranking: data.ranking, selections: data.selections }} />
+          <AnswerContent answer={{ text: answer, initiative: data.initiative, steps: data.steps, points: data.points, ranking: data.ranking, selections: data.selections }} />
         </div>}
       </div> : <form onSubmit={async e => {
         e.preventDefault();
         setSaved(false);
         const payload = format === 'ranking' ? { ranking } : format === 'multi' ? { selections }
-          : format === 'points' ? { points } : { text: current };
+          : initiativeQuestion ? { initiative, steps } : format === 'points' ? { points } : { text: current };
         if (await event.send('answer', { roundId: round.id, ...payload })) setSaved(true);
       }}>
         {format === 'ranking' ? <RankingEditor options={choices} ranking={ranking} limit={ranks} onChange={items => {
@@ -191,7 +197,13 @@ function GuestRound({ data, event }) {
               setSelectionDraft(e.target.checked ? [...selections, option] : selections.filter(item => item !== option));
               setSaved(false);
             }} />{option}</label>)}
-        </fieldset> : format === 'points' ? <PointsEditor points={points} help={round.question.help} onChange={items => {
+        </fieldset> : initiativeQuestion ? <InitiativeEditor initiative={initiative} steps={steps} onInitiative={value => {
+          setInitiativeDraft(value);
+          setSaved(false);
+        }} onSteps={items => {
+          setPointsDraft(items);
+          setSaved(false);
+        }} /> : format === 'points' ? <PointsEditor points={points} help={round.question.help} onChange={items => {
           setPointsDraft(items);
           setSaved(false);
         }} /> : options.length ? <fieldset>
@@ -266,6 +278,25 @@ function RankingEditor({ options, ranking, limit, onChange }) {
   </fieldset>;
 }
 
+function InitiativeEditor({ initiative, steps, onInitiative, onSteps }) {
+  const fields = Array.from({ length: 5 }, (_, index) => steps[index] || '');
+  return <>
+    <div>
+      <label htmlFor="innovation-initiative">Innovation initiative</label>
+      <textarea id="innovation-initiative" rows={2} maxLength={500} value={initiative} onChange={e => onInitiative(e.target.value)} required />
+    </div>
+    <fieldset>
+      <legend>Steps</legend>
+      <p className="help">Add one to five steps. You can leave the other fields blank.</p>
+      {fields.map((step, index) => <div key={index}>
+        <label htmlFor={`initiative-step-${index + 1}`}>Step {index + 1}</label>
+        <textarea id={`initiative-step-${index + 1}`} rows={2} maxLength={500} value={step}
+          onChange={e => onSteps(fields.map((item, i) => i === index ? e.target.value : item))} />
+      </div>)}
+    </fieldset>
+  </>;
+}
+
 function PointsEditor({ points, help, onChange }) {
   return <fieldset>
     <legend>Your commitment</legend>
@@ -338,7 +369,11 @@ function ResponseBoard({ answers, themes, title, onOpen, mergeExact }) {
     <div className="stage-replies">
       {groups.map(({ label, ids, count }, index) => <button type="button" className="response-card group-card"
         key={index} onClick={() => onOpen(ids)}><span>{label}</span><strong>{count}</strong></button>)}
-      {unmatched.map(answer => <button type="button" className="response-card" key={answer.id} onClick={() => onOpen([answer.id])}>
+      {unmatched.map(answer => answer.initiative
+        ? <button type="button" className="response-card initiative-card" key={answer.id} onClick={() => onOpen([answer.id])}>
+          <span>{answer.initiative}<small>View steps</small></span>
+        </button>
+        : <button type="button" className="response-card" key={answer.id} onClick={() => onOpen([answer.id])}>
         <Avatar index={answer.avatar} initials={answer.initials} />
         <span>{answer.points?.[0] ?? answer.text}{answer.points?.length > 1 && <small>{answer.points.length} points</small>}</span>
       </button>)}
@@ -347,6 +382,12 @@ function ResponseBoard({ answers, themes, title, onOpen, mergeExact }) {
 }
 
 function AnswerContent({ answer }) {
+  if (answer.initiative) return <div className="initiative-detail">
+    <strong>{answer.initiative}</strong>
+    {answer.steps?.length > 0
+      ? <ol className="answer-points">{answer.steps.map((step, index) => <li key={index}>{step}</li>)}</ol>
+      : <p>No steps were provided.</p>}
+  </div>;
   if (answer.selections?.length) return <ul className="answer-points">
     {answer.selections.map(text => <li key={text}>{text}</li>)}
   </ul>;
@@ -413,7 +454,8 @@ export function Projector() {
           {!shown && <p className="stage-sub">{round.status === 'open' ? 'Send your answer from your phone.' : ''}</p>}
           {focused.length > 0 && <div className="spotlight" role="dialog" aria-modal="false" aria-label="Spotlighted response">
             {focused.map(answer => <div className="spotlight-answer" key={answer.id}>
-              <Avatar index={answer.avatar} initials={answer.initials} /><AnswerContent answer={answer} />
+              {!answer.initiative && <Avatar index={answer.avatar} initials={answer.initials} />}
+              <AnswerContent answer={answer} />
             </div>)}
             {!projected && <button type="button" className="quiet" onClick={() => setSelected([])}>Back to responses</button>}
           </div>}

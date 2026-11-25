@@ -140,3 +140,9 @@ button.vote:hover:not(:disabled){background:#f1f3ff}
 .option-section{display:grid;gap:1cqw;min-width:0}
 .custom-section{border-top:1px solid var(--line);padding-top:1.55cqw}
 .custom-section .vote-label{display:block}
+
+.initiative-card>span:last-child{display:block}
+.initiative-detail{width:100%;overflow-wrap:anywhere}
+.spotlight .initiative-detail>strong{display:block;font:clamp(18px,4.4cqw,48px)/1.13 var(--serif)}
+.spotlight .initiative-detail .answer-points{margin-top:2cqw;font-size:clamp(15px,3.2cqw,36px)}
+.spotlight .initiative-detail li+li{margin-top:.4em}
