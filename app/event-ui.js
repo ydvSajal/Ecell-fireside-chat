@@ -115,8 +115,13 @@ export function Guest() {
 function GuestRound({ data, event }) {
   const { guest, round, answer } = data;
   const [draft, setDraft] = useState(null);
+  const [useCustomAnswer, setUseCustomAnswer] = useState(null);
+  const [customDraft, setCustomDraft] = useState(null);
   const [saved, setSaved] = useState(false);
-  const current = draft ?? answer;
+  const options = round?.question.options || [];
+  const previousCustom = Boolean(options.length && answer && !options.includes(answer));
+  const customSelected = useCustomAnswer ?? previousCustom;
+  const current = customSelected ? customDraft ?? (previousCustom ? answer : '') : draft ?? answer;
   return <section className="entry">
     <div className="person"><Avatar index={guest.avatar} initials={guest.initials} />{guest.name}</div>
     {round ? <>
@@ -130,17 +135,34 @@ function GuestRound({ data, event }) {
         setSaved(false);
         if (await event.send('answer', { roundId: round.id, text: current })) setSaved(true);
       }}>
-        {round.question.options.length ? <fieldset>
+        {options.length ? <fieldset>
           <legend>Choose one answer</legend>
-          {round.question.options.map(option => <label className="option" key={option}>
-            <input type="radio" name="choice" required checked={current === option} onChange={() => { setDraft(option); setSaved(false); }} />
+          {options.map(option => <label className="option" key={option}>
+            <input type="radio" name="choice" required checked={!customSelected && current === option} onChange={() => {
+              setUseCustomAnswer(false);
+              setDraft(option);
+              setSaved(false);
+            }} />
             {option}</label>)}
+          <label className="option">
+            <input type="radio" name="choice" required checked={customSelected} onChange={() => {
+              setUseCustomAnswer(true);
+              setSaved(false);
+            }} />
+            Other (write your own)
+          </label>
+          {customSelected && <label>Your own answer
+            <textarea rows={3} maxLength={2500} value={current} onChange={e => {
+              setCustomDraft(e.target.value);
+              setSaved(false);
+            }} required />
+          </label>}
         </fieldset> : <label>Your answer
           {round.question.help && <span className="help">{round.question.help}</span>}
           <textarea rows={5} maxLength={2500} value={current} onChange={e => { setDraft(e.target.value); setSaved(false); }} required />
         </label>}
         <button disabled={event.busy || !current.trim()}>{answer ? 'Update answer' : 'Submit answer'}</button>
-        {(saved || answer && draft === null) && <p role="status" className="saved">Answer saved. You can edit it until the round closes.</p>}
+        {(saved || (answer && current === answer)) && <p role="status" className="saved">Answer saved. You can edit it until the round closes.</p>}
       </form>}
     </> : <><h1>You’re in.</h1><p>The moderator’s question will appear here when the round begins.</p></>}
   </section>;
@@ -159,6 +181,27 @@ function JoinCode() {
   return src && <figure className="join-code"><img src={src} alt="QR code for the guest sign-in page" width="126" height="126" /><figcaption>Scan to join</figcaption></figure>;
 }
 
+function PollResults({ options, answers, onSpotlight }) {
+  const totals = new Map(options.map(option => ['preset:' + option, { label: option, count: 0 }]));
+  for (const answer of answers) {
+    const preset = 'preset:' + answer.text;
+    const key = totals.has(preset) ? preset : 'custom:' + answer.text.trim().toLowerCase();
+    if (!totals.has(key)) totals.set(key, { label: answer.text, count: 0, answerId: answer.id });
+    totals.get(key).count++;
+  }
+  return <div className="tally" aria-label="Poll results">
+    {[...totals.entries()].map(([key, { label, count, answerId }]) => {
+      const share = answers.length ? Math.round(count / answers.length * 100) : 0;
+      const text = `${label}, ${count} ${count === 1 ? 'vote' : 'votes'}, ${share}%`;
+      const badge = <><span className="vote-label">{label}</span><strong className="vote-count">{count}</strong></>;
+      const props = { className: 'vote', 'data-empty': count === 0 ? '' : undefined, style: { '--vote-share': share + '%' }, title: text };
+      return answerId
+        ? <button type="button" key={key} {...props} aria-label={text} onClick={() => onSpotlight(answerId)}>{badge}</button>
+        : <div key={key} {...props}>{badge}</div>;
+    })}
+  </div>;
+}
+
 export function Projector() {
   const { data, connection } = useEvent('projector');
   const round = data?.round;
@@ -170,6 +213,7 @@ export function Projector() {
   const focused = round?.answers.find(item => item.id === selected) || projected;
   const options = round?.question.options || [];
   const total = data?.guestCount || 0;
+  const showResults = Boolean(shown && (options.length || round.count));
   return <main className="projection">
     <div className="square">
       {connection && <p className="stage-notice" role="status">{connection}</p>}
@@ -184,19 +228,12 @@ export function Projector() {
           <p className="ready" aria-live="polite">{total ? `${data.ready.length} of ${total} guests ready` : 'Waiting for guests'}</p>
           <JoinCode />
         </section>
-        : <section className={'stage-round' + (shown && round.count ? '' : ' stage-waiting')}>
+        : <section className={'stage-round' + (showResults ? '' : ' stage-waiting')}>
           {round.question.lab && <p className="stage-context">{round.question.lab}</p>}
           <h1 className={round.question.text.length > 105 ? 'long-question' : undefined}>{round.question.text}</h1>
           <p className="stage-count" role="status">{round.count} of {Math.max(total, round.count)} responded</p>
-          {shown && round.count > 0 && <div className={'results' + (round.analysis ? ' with-themes' : '')}>
-            {options.length ? <div className="tally">
-              {options.map(option => {
-                const count = round.answers.filter(answer => answer.text === option).length;
-                return <div className="vote" key={option}><div><span>{option}</span><strong>{count}</strong></div>
-                  <span className="bar" aria-hidden="true"><i style={{ width: `${count / round.count * 100}%` }} /></span>
-                </div>;
-              })}
-            </div> : <div className="bubbles">
+          {showResults && <div className={'results' + (round.analysis ? ' with-themes' : '')}>
+            {options.length ? <PollResults options={options} answers={round.answers} onSpotlight={setSelected} /> : <div className="bubbles">
               {round.answers.map(answer => <button className={'bubble' + (theme && !theme.ids.includes(answer.id) ? ' dim' : '')}
                 key={answer.id} title={answer.text} onClick={() => setSelected(answer.id)}>
                 <Avatar index={answer.avatar} initials={answer.initials} /><span>{answer.text}</span>

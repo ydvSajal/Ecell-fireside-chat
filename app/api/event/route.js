@@ -256,7 +256,6 @@ export async function POST(req) {
         check(round && round.id === body.roundId && round.status === 'open', 'This round has closed or changed.', 409);
         const text = entered(body.text, 2500);
         check(text && text.length <= 2500, 'Enter an answer of up to 2,500 characters.');
-        check(!round.question.options.length || round.question.options.includes(text), 'Choose one of the listed options.');
         round.answers[guest.id] = text;
         round.avatars[guest.id] = guest.avatar;
         return { ok: true };
