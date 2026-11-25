@@ -3,3 +3,4 @@ node_modules/
 .action-labs/
 .env*
 !.env.example
+.vercel

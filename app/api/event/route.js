@@ -209,7 +209,7 @@ export async function POST(req) {
       if (result.error) return json({ error: result.error }, result.status);
       const response = json({ ok: true });
       response.cookies.set(cookieFor(result.role), result.token, {
-        httpOnly: true, sameSite: 'lax', secure: Boolean(process.env.RENDER) || req.nextUrl.protocol === 'https:',
+        httpOnly: true, sameSite: 'lax', secure: Boolean(process.env.RENDER || process.env.VERCEL) || req.nextUrl.protocol === 'https:',
         path: '/', maxAge: 12 * 60 * 60,
       });
       return response;
