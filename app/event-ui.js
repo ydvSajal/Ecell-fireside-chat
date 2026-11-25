@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { questionFormat } from '../lib/responses';
+import { customSlots, optionKey, questionFormat, rankCount } from '../lib/responses';
 
 const eventTitle = 'Corporate Innovation Action Lab';
 const avatarColors = [
@@ -132,15 +132,38 @@ function GuestRound({ data, event }) {
   const options = round?.question.options || [];
   const format = round ? questionFormat(round.question) : 'written';
   const [rankingDraft, setRankingDraft] = useState(null);
+  const [selectionDraft, setSelectionDraft] = useState(null);
+  const [customRows, setCustomRows] = useState(null);
   const [pointsDraft, setPointsDraft] = useState(null);
   const ranking = rankingDraft ?? data.ranking ?? [];
+  const selections = selectionDraft ?? data.selections ?? [];
+  const rows = customRows ?? (format === 'ranking' ? data.ranking : data.selections)?.filter(item => !options.includes(item)) ?? [];
+  const slots = round ? customSlots(round.question) : 0;
+  const uniqueChoices = new Map(options.map(item => [optionKey(item), item]));
+  for (const row of rows) {
+    const item = row.trim();
+    const key = optionKey(item);
+    if (key && !uniqueChoices.has(key)) uniqueChoices.set(key, item);
+  }
+  const choices = [...uniqueChoices.values()];
+  const ranks = round ? rankCount(round.question) : 0;
   const points = pointsDraft ?? (data.points?.length ? data.points : ['']);
   const previousCustom = Boolean(options.length && answer && !options.includes(answer));
   const customSelected = useCustomAnswer ?? previousCustom;
   const current = customSelected ? customDraft ?? (previousCustom ? answer : '') : draft ?? answer;
-  const ready = format === 'ranking' ? ranking.length === options.length : format === 'points'
-    ? points.some(point => point.trim()) : Boolean(current.trim());
-  const unchanged = format === 'ranking' ? !rankingDraft : format === 'points' ? !pointsDraft : current === answer;
+  const ready = format === 'ranking' ? ranking.length === ranks : format === 'multi' ? selections.length > 0
+    : format === 'points' ? points.some(point => point.trim()) : Boolean(current.trim());
+  const unchanged = format === 'ranking' ? !rankingDraft : format === 'multi' ? !selectionDraft : format === 'points' ? !pointsDraft : current === answer;
+  function editCustom(index, value) {
+    const previous = rows[index]?.trim();
+    const updated = Array.from({ length: slots }, (_, i) => i === index ? value : rows[i] || '');
+    setCustomRows(updated);
+    if (previous && previous !== value.trim()) {
+      if (format === 'ranking') setRankingDraft(ranking.filter(item => item !== previous));
+      else setSelectionDraft(selections.filter(item => item !== previous));
+    }
+    setSaved(false);
+  }
   return <section className="entry">
     <div className="person"><Avatar index={guest.avatar} initials={guest.initials} />{guest.name}</div>
     {round ? <>
@@ -149,18 +172,33 @@ function GuestRound({ data, event }) {
       {round.status === 'revealed' ? <div className="entry-status">
         <p>Responses are closed. Look at the projector for the results.</p>
         {answer && <div className="saved-answer"><strong>Your answer</strong>
-          <AnswerContent answer={{ text: answer, points: data.points, ranking: data.ranking }} />
+          <AnswerContent answer={{ text: answer, points: data.points, ranking: data.ranking, selections: data.selections }} />
         </div>}
       </div> : <form onSubmit={async e => {
         e.preventDefault();
         setSaved(false);
-        const payload = format === 'ranking' ? { ranking } : format === 'points' ? { points } : { text: current };
+        const payload = format === 'ranking' ? { ranking } : format === 'multi' ? { selections }
+          : format === 'points' ? { points } : { text: current };
         if (await event.send('answer', { roundId: round.id, ...payload })) setSaved(true);
       }}>
-        {format === 'ranking' ? <RankingEditor options={options} ranking={ranking} onChange={items => {
+        {slots > 0 && <fieldset className="custom-rows">
+          <legend>Add your own options</legend>
+          <p className="help">{format === 'ranking' ? 'Write an option here, then add it to your ranking below.' : 'Write an option here, then select it below.'}</p>
+          {Array.from({ length: slots }, (_, index) => <label key={index}>Custom option {index + 1}
+            <input value={rows[index] || ''} maxLength={240} onChange={e => editCustom(index, e.target.value)} />
+          </label>)}
+        </fieldset>}
+        {format === 'ranking' ? <RankingEditor options={choices} ranking={ranking} limit={ranks} onChange={items => {
           setRankingDraft(items);
           setSaved(false);
-        }} /> : format === 'points' ? <PointsEditor points={points} help={round.question.help} onChange={items => {
+        }} /> : format === 'multi' ? <fieldset>
+          <legend>Select all that apply</legend>
+          {choices.map(option => <label className="option" key={option}>
+            <input type="checkbox" checked={selections.includes(option)} onChange={e => {
+              setSelectionDraft(e.target.checked ? [...selections, option] : selections.filter(item => item !== option));
+              setSaved(false);
+            }} />{option}</label>)}
+        </fieldset> : format === 'points' ? <PointsEditor points={points} help={round.question.help} onChange={items => {
           setPointsDraft(items);
           setSaved(false);
         }} /> : options.length ? <fieldset>
@@ -196,7 +234,7 @@ function GuestRound({ data, event }) {
   </section>;
 }
 
-function RankingEditor({ options, ranking, onChange }) {
+function RankingEditor({ options, ranking, limit, onChange }) {
   function move(index, offset) {
     const updated = [...ranking];
     [updated[index], updated[index + offset]] = [updated[index + offset], updated[index]];
@@ -204,8 +242,8 @@ function RankingEditor({ options, ranking, onChange }) {
   }
   const remaining = options.filter(option => !ranking.includes(option));
   return <fieldset>
-    <legend>Rank all {options.length} interventions</legend>
-    <p className="help">Pick your top intervention first, then add the rest in order of preference.</p>
+    <legend>Rank {limit === options.length ? 'all ' : 'your top '}{limit} options</legend>
+    <p className="help">Pick your highest priority first, then add the others in order of preference.</p>
     {ranking.length > 0 && <ol className="rank-list">
       {ranking.map((option, index) => <li key={option}>
         <span>{option}</span>
@@ -216,9 +254,9 @@ function RankingEditor({ options, ranking, onChange }) {
         </div>
       </li>)}
     </ol>}
-    {remaining.length > 0 && <label>Add rank {ranking.length + 1}
+    {remaining.length > 0 && ranking.length < limit && <label>Add rank {ranking.length + 1}
       <select value="" onChange={e => onChange([...ranking, e.target.value])}>
-        <option value="" disabled>Choose an intervention</option>
+        <option value="" disabled>Choose an option</option>
         {remaining.map(option => <option key={option}>{option}</option>)}
       </select>
     </label>}
@@ -249,26 +287,27 @@ function JoinCode() {
   return src && <figure className="join-code"><img src={src} alt="QR code for the guest sign-in page" width="126" height="126" /><figcaption>Scan to join</figcaption></figure>;
 }
 
-function OptionResults({ stats, count, optionCount }) {
+function OptionResults({ stats, count, optionCount, multi }) {
   const ranked = Boolean(optionCount);
   const selected = stats.filter(item => (ranked ? item.score : item.count) > 0);
   const skipped = stats.filter(item => (ranked ? item.score : item.count) === 0);
   const max = ranked ? count * optionCount : count;
   return <>
     {ranked && <p className="stage-caption">Ranked results · {optionCount} points for first, 1 for last</p>}
+    {multi && <p className="stage-caption">Share of respondents who selected each option</p>}
     {selected.length > 0 && <div className="tally" aria-label="Voted options">
-      {selected.map(({ label, count: votes, score, first }) => {
+      {selected.map(({ label, count: votes, score, first, custom }) => {
         const value = ranked ? score : votes;
         const share = max ? Math.round(value / max * 100) : 0;
         const detail = ranked ? `${score} points · ${first} first-place` : `${votes} ${votes === 1 ? 'vote' : 'votes'}`;
-        return <div key={label} className="vote" style={{ '--vote-share': share + '%' }} title={`${label}, ${detail}`}>
+        return <div key={label} className={custom ? 'vote custom-vote' : 'vote'} style={{ '--vote-share': share + '%' }} title={`${label}, ${detail}`}>
           <span className="vote-label">{label}{ranked && <small>{first} first-place</small>}</span>
-          <strong className="vote-count" aria-label={detail}>{value}</strong>
+          <strong className="vote-count" aria-label={detail}>{multi ? `${share}%` : value}</strong>
         </div>;
       })}
     </div>}
     {skipped.length > 0 && <div className="unpicked" aria-label="Options without votes">
-      {skipped.map(item => <span key={item.label}>{item.label}<strong>0</strong></span>)}
+      {skipped.map(item => <span key={item.label}>{item.label}<strong>{multi ? '0%' : '0'}</strong></span>)}
     </div>}
   </>;
 }
@@ -305,6 +344,9 @@ function ResponseBoard({ answers, themes, title, onOpen, mergeExact }) {
 }
 
 function AnswerContent({ answer }) {
+  if (answer.selections?.length) return <ul className="answer-points">
+    {answer.selections.map(text => <li key={text}>{text}</li>)}
+  </ul>;
   const entries = answer.points?.length ? answer.points : answer.ranking;
   return entries?.length
     ? <ol className="answer-points">{entries.map((text, index) => <li key={index}>{text}</li>)}</ol>
@@ -321,7 +363,7 @@ export function Projector() {
   const focused = projected ? [projected] : (round?.answers.filter(answer => selected.includes(answer.id)) || []);
   const format = round ? questionFormat(round.question) : 'written';
   const options = round?.question.options || [];
-  const written = round?.answers.filter(answer => format !== 'ranking' && (format !== 'choice' || !options.includes(answer.text))) || [];
+  const written = round?.answers.filter(answer => format !== 'ranking' && format !== 'multi' && (format !== 'choice' || !options.includes(answer.text))) || [];
   const themes = round?.analysis?.themes || [];
   const total = data?.guestCount || 0;
   const joined = data?.ready.length ?? 0;
@@ -349,7 +391,7 @@ export function Projector() {
             <ResponseBoard answers={written} themes={themes} onOpen={setSelected} mergeExact={format === 'choice'}
               title={format === 'choice' ? 'Guest suggestions' : format === 'points' ? 'Action board' : themes.length ? 'Emerging themes and responses' : null} />
             {options.length > 0 && <OptionResults stats={round.stats || []} count={round.count}
-              optionCount={format === 'ranking' ? options.length : 0} />}
+              optionCount={format === 'ranking' ? rankCount(round.question) : 0} multi={format === 'multi'} />}
             {round.analysisStatus === 'running' && <p className="stage-caption" role="status">Grouping similar responses…</p>}
             {round.analysis?.takeaway && <p className="stage-caption">{round.analysis.takeaway}</p>}
           </div>}
@@ -396,6 +438,7 @@ function Editor({ question, event, onClose }) {
     <label>Answer format<select value={format} onChange={e => setFormat(e.target.value)}>
       <option value="standard">Multiple choice or written</option>
       <option value="ranking">Ranking</option>
+      <option value="multi">Select multiple</option>
       <option value="points">Action board · up to five points</option>
     </select></label>
     {format !== 'points' && <label>Choices <span className="help">{format === 'ranking' ? 'Enter the choices to rank, one per line.' : 'One per line. Leave blank for a written answer.'}</span>
@@ -437,11 +480,17 @@ function GeminiEditor({ settings, event }) {
       }
     }}>
       <label>Model ID<input name="model" defaultValue={settings.model} maxLength={100} autoComplete="off" /></label>
-      <label>New API key <span className="help">Leave blank to keep the current key. Saved keys cannot be viewed.</span>
-        <input name="key" type="password" maxLength={512} autoComplete="new-password" disabled={!settings.canStoreKey} />
+      <label>New API key <span className="help">Leave blank to use the saved key. The test uses the key and model in this form.</span>
+        <input name="key" type="password" maxLength={2048} autoComplete="new-password" />
       </label>
       <div className="actions">
         <button disabled={event.busy}>Save Gemini settings</button>
+        <button type="button" className="quiet" disabled={event.busy} onClick={async e => {
+          const fields = Object.fromEntries(new FormData(e.currentTarget.form));
+          setMessage('Testing connection…');
+          const result = await event.send('gemini-test', fields);
+          setMessage(result ? 'Connection successful. Gemini responded using this model.' : '');
+        }}>Test connection</button>
         {settings.keySource === 'admin' && <button type="button" className="quiet danger" disabled={event.busy} onClick={async () => {
           if (!window.confirm('Remove the key saved in Admin?')) return;
           setMessage('');
@@ -465,7 +514,11 @@ export function Admin() {
   const guests = data?.guests?.filter(item => item.enabled) || [];
   const questions = data?.questions || [];
   const activeIndex = questions.findIndex(item => item.id === round?.question.id);
-  const currentId = questions[activeIndex]?.id;
+  const currentQuestion = questions[activeIndex];
+  const currentId = currentQuestion?.id;
+  const currentMatches = currentQuestion && round &&
+    ['text', 'lab', 'format', 'rankLimit', 'maxOptions', 'help'].every(field => currentQuestion[field] === round.question[field]) &&
+    JSON.stringify(currentQuestion.options) === JSON.stringify(round.question.options);
   const selection = questions.find(item => item.id === chosen)?.id || currentId || questions[0]?.id || '';
   const showLive = live ?? round?.live ?? false;
   const manage = (action, settings = {}) => send(action, { ...settings, roundId: round?.id ?? null });
@@ -525,7 +578,7 @@ export function Admin() {
                 {questions.map((item, index) => <option key={item.id} value={item.id}>{index + 1}. {item.text}</option>)}
               </select></label>
               <label className="check"><input type="checkbox" checked={showLive} onChange={e => setLive(e.target.checked)} /> Show responses live when publishing</label>
-              <button disabled={busy || !selection || selection === currentId}>{round ? 'Switch to selected question' : 'Publish question'}</button>
+              <button disabled={busy || !selection || (selection === currentId && currentMatches)}>{round ? 'Switch to selected question' : 'Publish question'}</button>
             </form>
           </section>
           <ResponseFeed key={round?.id || 'lobby'} round={round} guests={guests} busy={busy} manage={manage} />
@@ -535,7 +588,7 @@ export function Admin() {
           {question && <Editor key={question.id || 'new'} question={question.id ? question : null} event={event} onClose={() => setQuestion(null)} />}
           {data.questions.map((item, index) => <div className="list-row question-row" key={item.id}>
             <span className="ordinal">{index + 1}</span>
-            <div className="row-copy"><strong>{item.text}</strong><p>{[item.lab, item.format === 'points' ? 'Action board' : item.format === 'ranking' ? 'Ranking' : item.options.length ? `Poll · ${item.options.length} choices` : 'Written response'].filter(Boolean).join(' · ')}</p></div>
+            <div className="row-copy"><strong>{item.text}</strong><p>{[item.lab, item.format === 'points' ? 'Action board' : item.format === 'ranking' ? 'Ranking' : item.format === 'multi' ? 'Select multiple' : item.options.length ? `Poll · ${item.options.length} choices` : 'Written response'].filter(Boolean).join(' · ')}</p></div>
             <div className="actions">
               <button className="quiet arrow" aria-label={`Move question ${index + 1} up`} disabled={busy || index === 0} onClick={() => send('question-move', { id: item.id, direction: 'up' })}>↑</button>
               <button className="quiet arrow" aria-label={`Move question ${index + 1} down`} disabled={busy || index + 1 === data.questions.length} onClick={() => send('question-move', { id: item.id, direction: 'down' })}>↓</button>
@@ -588,6 +641,7 @@ function ResponseFeed({ round, guests, busy, manage }) {
   const [filter, setFilter] = useState('');
   const answers = round?.answers || [];
   const stats = round?.stats || [];
+  const format = round ? questionFormat(round.question) : null;
   const names = new Map(guests.map(guest => [guest.id, guest.name]));
   const getName = id => names.get(id) || 'Former guest';
   const filtered = filter ? answers.filter(answer => answer.id === filter) : answers;
@@ -607,7 +661,7 @@ function ResponseFeed({ round, guests, busy, manage }) {
       {stats.length > 0 && <details className="response-stats" open>
         <summary>Question stats</summary>
         {stats.map(stat => <div className="stat-line" key={stat.label}>
-          <span>{stat.label}</span><strong>{stat.score === undefined ? stat.count : `${stat.score} pts · ${stat.first} first`}</strong>
+          <span>{stat.label}</span><strong>{stat.score === undefined ? format === 'multi' ? `${round.count ? Math.round(stat.count / round.count * 100) : 0}% · ${stat.count}` : stat.count : `${stat.score} pts · ${stat.first} first`}</strong>
         </div>)}
         {questionFormat(round.question) === 'choice' && <div className="stat-line">
           <span>Custom responses</span><strong>{answers.length - stats.reduce((sum, stat) => sum + stat.count, 0)}</strong>

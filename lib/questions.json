@@ -1,36 +1,65 @@
 [
   {
     "id": "pulse-1",
-    "lab": "Pulse 1 – The growth ambition",
-    "text": "What is the most promising untapped growth avenue for your organisation?",
-    "options": ["New products and services", "New markets", "Adjacent businesses", "New business models", "Technology-led businesses", "Entirely new ventures"],
-    "help": ""
+    "lab": "Pulse 1",
+    "text": "Which untapped growth avenues are most promising for your organisation?",
+    "options": [
+      "New products and services",
+      "New markets",
+      "Adjacent businesses",
+      "New business models",
+      "Technology-led businesses",
+      "Entirely new ventures"
+    ],
+    "help": "",
+    "format": "ranking",
+    "rankLimit": 5,
+    "maxOptions": 10
   },
   {
     "id": "pulse-2",
-    "lab": "Pulse 2 – The innovation gap",
-    "text": "Which one capability is most underdeveloped in your organisation?",
-    "options": ["Identifying opportunities", "Mobilising entrepreneurial talent", "Incubating ideas", "Funding experimentation", "Commercialising innovation", "Scaling new businesses"],
-    "help": ""
+    "lab": "Pulse 2",
+    "text": "Which capabilities are most underdeveloped in your organisation?",
+    "options": [
+      "Identifying opportunities",
+      "Mobilising entrepreneurial talent",
+      "Incubating ideas",
+      "Funding experimentation",
+      "Commercialising innovation",
+      "Scaling new businesses",
+      "Leadership Growth Mindset"
+    ],
+    "help": "",
+    "format": "multi",
+    "maxOptions": 10
   },
   {
     "id": "pulse-3",
-    "lab": "Pulse 3 – The uncomfortable question",
-    "text": "What is the single biggest reason promising ideas fail to become businesses in large corporations?",
+    "lab": "Pulse 3",
+    "text": "What is the single biggest reason promising ideas fail to become businesses in your company?",
     "options": [],
     "help": ""
   },
   {
     "id": "pulse-4",
-    "lab": "Pulse 4 – The activation choice",
-    "text": "Which one intervention would have the greatest potential to unlock new corporate growth?",
+    "lab": "Pulse 4",
+    "text": "Which interventions have the greatest potential to unlock new corporate growth?",
     "format": "ranking",
-    "options": ["Internal intrapreneurship cohorts", "Corporate incubation programmes", "Dedicated venture-building teams", "Startup and entrepreneur partnerships", "University–industry innovation programmes", "Dedicated innovation capital and governance"],
-    "help": ""
+    "options": [
+      "Internal intrapreneurship cohorts",
+      "Corporate incubation programmes",
+      "Dedicated venture-building teams",
+      "Startup and entrepreneur partnerships",
+      "University–industry innovation programmes",
+      "Dedicated innovation capital and governance"
+    ],
+    "help": "",
+    "rankLimit": 5,
+    "maxOptions": 10
   },
   {
     "id": "pulse-5",
-    "lab": "Pulse 5 – The commitment",
+    "lab": "Pulse 5",
     "text": "What is one innovation initiative you would seriously consider initiating in your organisation within the next 90 days?",
     "format": "points",
     "options": [],

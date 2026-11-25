@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { after, NextResponse } from 'next/server';
 import { changeState, readState } from '../../../lib/store';
 import { cookieFor, passwordHash, sameSecret, sessionFor, signIn, tokenKey, validPassword } from '../../../lib/auth';
-import { analyse } from '../../../lib/analysis';
-import { questionFormat, responseStats, themeCandidates } from '../../../lib/responses';
+import { analyse, testGemini } from '../../../lib/analysis';
+import { customSlots, optionKey, questionFormat, rankCount, responseStats, themeCandidates } from '../../../lib/responses';
 import { geminiCredentials, geminiSettings, saveGeminiKey } from '../../../lib/settings';
 
 export const runtime = 'nodejs';
@@ -39,7 +39,7 @@ function roundView(round, show, guests = []) {
   const initials = show ? new Map(guests.map(guest => [guest.id, initialsFor(guest.name)])) : null;
   const answers = show ? entries.map(([id, text]) => ({
     id, text, avatar: round.avatars[id] ?? 0, initials: initials.get(id),
-    ranking: round.rankings?.[id], points: round.points?.[id],
+    ranking: round.rankings?.[id], selections: round.selections?.[id], points: round.points?.[id],
   })) : [];
   return {
     id: round.id, question: round.question, status: round.status, live: round.live, count: entries.length,
@@ -83,6 +83,7 @@ export async function GET(req) {
         round: guest ? roundView(round, false) : null,
         answer: guest && round ? round.answers[guest.id] || '' : '',
         ranking: guest && round ? round.rankings?.[guest.id] || [] : [],
+        selections: guest && round ? round.selections?.[guest.id] || [] : [],
         points: guest && round ? round.points?.[guest.id] || [] : [],
       });
     }
@@ -158,15 +159,39 @@ function startAnalysis(job) {
   });
 }
 
-function questionFields(body) {
+function questionFields(body, previous) {
   const text = entered(body.text, 600);
   const lab = entered(body.lab, 140);
-  const format = ['ranking', 'points'].includes(body.format) ? body.format : undefined;
+  const format = ['ranking', 'multi', 'points'].includes(body.format) ? body.format : undefined;
   const options = format !== 'points' && Array.isArray(body.options) ? [...new Set(body.options.map(option => entered(option, 240)).filter(Boolean))] : [];
   check(text && text.length <= 600 && lab.length <= 140, 'Enter a question of up to 600 characters.');
   check(options.length !== 1 && options.length <= 10 && options.every(option => option.length <= 240), 'Use two to ten distinct choices, or leave choices blank.');
-  check(format !== 'ranking' || options.length >= 2, 'A ranking question needs at least two choices.');
-  return { text, lab, options, format };
+  check(!['ranking', 'multi'].includes(format) || options.length >= 2, 'This answer format needs at least two choices.');
+  if (['ranking', 'multi'].includes(format)) {
+    check(new Set(options.map(optionKey)).size === options.length, 'Use distinct choices.');
+  }
+  const rankLimit = format === 'ranking' ? previous?.rankLimit : undefined;
+  const maxOptions = format === 'multi' ? 10 : format === 'ranking' ? previous?.maxOptions : undefined;
+  return { text, lab, options, format, rankLimit, maxOptions };
+}
+
+function geminiFields(body) {
+  const model = entered(body.model, 100).replace(/^models\//, '');
+  const key = entered(body.key, 2048);
+  check(!model || /^[a-z0-9][a-z0-9.-]{0,99}$/i.test(model), 'Enter a Gemini model ID, or leave it blank for the default.');
+  check(key.length <= 2048, 'The API key is too long.');
+  return { model, key };
+}
+
+function ballot(question, input, ranked) {
+  const title = ranked ? `Rank ${rankCount(question)} distinct choices.` : 'Select at least one distinct choice.';
+  check(Array.isArray(input) && input.length > 0 && input.length <= 10 && (!ranked || input.length === rankCount(question)), title);
+  const presets = new Map(question.options.map(option => [optionKey(option), option]));
+  const items = input.map(value => entered(value, 240));
+  const keys = items.map(optionKey);
+  check(items.every(item => item.length > 0 && item.length <= 240) && new Set(keys).size === items.length, title);
+  check(keys.filter(key => !presets.has(key)).length <= customSlots(question), 'Too many custom choices.');
+  return items.map((item, index) => presets.get(keys[index]) || item);
 }
 
 function revokeGuestSessions(state, guestIds) {
@@ -179,10 +204,7 @@ function adminChange(state, body) {
   const { action, id } = body;
   const round = active(state);
   if (action === 'gemini-save') {
-    const model = entered(body.model, 100);
-    const key = entered(body.key, 512);
-    check(!model || /^gemini-[a-z0-9][a-z0-9.-]{0,92}$/.test(model), 'Enter a valid Gemini model ID, or leave it blank for the default.');
-    check(!key || /^[A-Za-z0-9_-]{8,512}$/.test(key), 'Enter a valid Gemini API key.');
+    const { model, key } = geminiFields(body);
     const settings = state.settings ??= {};
     const previous = settings.gemini ?? {};
     check(!key || geminiSettings(state).canStoreKey, 'Configure SETTINGS_ENCRYPTION_KEY on the server before saving a key.', 503);
@@ -219,8 +241,8 @@ function adminChange(state, body) {
     guest.enabled = false;
     revokeGuestSessions(state, new Set([id]));
   } else if (action === 'question-save') {
-    const fields = questionFields(body);
     const question = state.questions.find(item => item.id === id);
+    const fields = questionFields(body, question);
     if (question) Object.assign(question, fields);
     else state.questions.push({ id: randomUUID(), help: '', ...fields });
   } else if (action === 'question-move' || action === 'question-remove') {
@@ -296,6 +318,19 @@ export async function POST(req) {
       return response;
     }
 
+    if (body.action === 'gemini-test') {
+      const state = await readState();
+      check(sessionFor(state, req, 'admin'), 'Sign in as admin.', 401);
+      const { model, key } = geminiFields(body);
+      try {
+        const credentials = key ? { key, model: geminiSettings(state).model } : geminiCredentials(state);
+        await testGemini({ ...credentials, model: model || credentials.model });
+      } catch (error) {
+        throw new RequestError(error.message, 422);
+      }
+      return json({ ok: true });
+    }
+
     if (body.action === 'analyse') {
       const job = await changeState(state => {
         check(sessionFor(state, req, 'admin'), 'Sign in as admin.', 401);
@@ -325,13 +360,13 @@ export async function POST(req) {
         const format = questionFormat(round.question);
         let text;
         if (format === 'ranking') {
-          const { ranking } = body;
-          const options = round.question.options;
-          check(Array.isArray(ranking) && ranking.length === options.length &&
-            new Set(ranking).size === options.length && ranking.every(option => options.includes(option)),
-          'Rank each choice once.');
+          const ranking = ballot(round.question, body.ranking, true);
           (round.rankings ??= {})[guest.id] = ranking;
           text = ranking.map((option, index) => `${index + 1}. ${option}`).join('\n');
+        } else if (format === 'multi') {
+          const selections = ballot(round.question, body.selections, false);
+          (round.selections ??= {})[guest.id] = selections;
+          text = selections.join('\n');
         } else if (format === 'points') {
           const points = Array.isArray(body.points) ? body.points.map(point => entered(point, 500)).filter(Boolean) : [];
           check(points.length >= 1 && points.length <= 5 && points.every(point => point.length <= 500),
