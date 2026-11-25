@@ -1,147 +1,39 @@
 [
   {
-    "id": "q1",
-    "text": "What is the biggest driver compelling Indian corporations to innovate today?",
-    "lab": "The Corporate Innovation Imperative",
-    "options": [
-      "Changing customer expectations",
-      "Disruptive technologies and AI",
-      "Competition from startups and new-age businesses",
-      "Global competition",
-      "Regulatory and sustainability requirements",
-      "Cost optimisation and operational efficiency"
-    ],
+    "id": "pulse-1",
+    "lab": "Pulse 1 – The growth ambition",
+    "text": "What is the most promising untapped growth avenue for your organisation?",
+    "options": ["New products and services", "New markets", "Adjacent businesses", "New business models", "Technology-led businesses", "Entirely new ventures"],
     "help": ""
   },
   {
-    "id": "q2",
-    "text": "Is innovation a strategic priority for Indian corporations or does it remain largely an experimental activity?",
-    "lab": "The Corporate Innovation Imperative",
-    "options": [
-      "A core business strategy",
-      "A leadership-driven priority",
-      "Limited to selected departments",
-      "Mostly experimental / pilot-driven",
-      "Not yet a significant priority"
-    ],
+    "id": "pulse-2",
+    "lab": "Pulse 2 – The innovation gap",
+    "text": "Which one capability is most underdeveloped in your organisation?",
+    "options": ["Identifying opportunities", "Mobilising entrepreneurial talent", "Incubating ideas", "Funding experimentation", "Commercialising innovation", "Scaling new businesses"],
     "help": ""
   },
   {
-    "id": "q3",
-    "text": "What is the single biggest barrier to innovation within large corporations?",
-    "lab": "Breaking the Barriers",
-    "options": [
-      "Risk-averse organisational culture",
-      "Bureaucracy and slow decision-making",
-      "Lack of leadership commitment",
-      "Inadequate innovation budgets",
-      "Resistance to change",
-      "Lack of access to emerging technologies and talent"
-    ],
-    "help": ""
-  },
-  {
-    "id": "q4",
-    "text": "What prevents corporations from working effectively with startups?",
-    "lab": "Breaking the Barriers",
-    "options": [
-      "Trust and credibility concerns",
-      "Lengthy procurement processes",
-      "Compliance and legal complexities",
-      "Differences in working culture and speed",
-      "Lack of clearly defined collaboration models",
-      "Unclear ROI and business outcomes"
-    ],
-    "help": ""
-  },
-  {
-    "id": "q5",
-    "text": "What is the most effective way for corporations to engage with startups?",
-    "lab": "Corporate–Startup Collaboration",
-    "options": [
-      "Paid Proof of Concept (PoC)",
-      "Corporate accelerator programmes",
-      "Strategic investments / CVC",
-      "Joint product development",
-      "Technology licensing and commercialisation",
-      "Long-term procurement partnerships"
-    ],
-    "help": ""
-  },
-  {
-    "id": "q6",
-    "text": "What would make your organisation more willing to adopt solutions developed by startups?",
-    "lab": "Corporate–Startup Collaboration",
-    "options": [],
-    "help": "Identify one critical change that would accelerate startup adoption."
-  },
-  {
-    "id": "q7",
-    "text": "What should universities prioritise to become meaningful innovation partners for industry?",
-    "lab": "Academia as an Innovation Partner",
-    "options": [
-      "Industry-sponsored applied research",
-      "Joint R&D and product development",
-      "Technology transfer and commercialisation",
-      "Access to research infrastructure and laboratories",
-      "Industry-led curriculum and talent development",
-      "Faculty–industry collaboration"
-    ],
-    "help": ""
-  },
-  {
-    "id": "q8",
-    "text": "What is the biggest missing link between academic research and commercialisation in India?",
-    "lab": "Academia as an Innovation Partner",
-    "options": [
-      "Research not aligned with industry needs",
-      "Lack of funding for technology validation",
-      "Limited industry engagement with universities",
-      "Absence of technology transfer mechanisms",
-      "Lack of entrepreneurial talent and commercial leadership",
-      "Long gestation periods and commercial risks"
-    ],
-    "help": ""
-  },
-  {
-    "id": "q9",
-    "text": "What is the most important intervention Government can make to accelerate corporate innovation in India?",
-    "lab": "Government as an Innovation Enabler",
-    "options": [
-      "Innovation-linked tax incentives",
-      "R&D grants and co-funding mechanisms",
-      "Easier procurement of startup solutions",
-      "Industry–academia collaborative funding",
-      "Regulatory sandboxes and testing infrastructure",
-      "Stronger IP and technology transfer frameworks"
-    ],
-    "help": ""
-  },
-  {
-    "id": "q10",
-    "text": "Should Government incentivise corporations to work with startups and universities through a structured Corporate Innovation Policy?",
-    "lab": "Government as an Innovation Enabler",
-    "options": [
-      "Yes, through financial incentives",
-      "Yes, through regulatory and procurement reforms",
-      "Yes, through collaborative R&D programmes",
-      "No, innovation should remain market-driven",
-      "A combination of these approaches"
-    ],
-    "help": ""
-  },
-  {
-    "id": "q11",
-    "text": "If your organisation could initiate one industry–academia innovation partnership in the next 12 months, what would it focus on?",
-    "lab": "From Ideas to Action",
+    "id": "pulse-3",
+    "lab": "Pulse 3 – The uncomfortable question",
+    "text": "What is the single biggest reason promising ideas fail to become businesses in large corporations?",
     "options": [],
     "help": ""
   },
   {
-    "id": "q12",
-    "text": "What is one concrete action your organisation would be willing to take to strengthen India's corporate innovation ecosystem?",
-    "lab": "From Ideas to Action",
-    "options": [],
+    "id": "pulse-4",
+    "lab": "Pulse 4 – The activation choice",
+    "text": "Which one intervention would have the greatest potential to unlock new corporate growth?",
+    "format": "ranking",
+    "options": ["Internal intrapreneurship cohorts", "Corporate incubation programmes", "Dedicated venture-building teams", "Startup and entrepreneur partnerships", "University–industry innovation programmes", "Dedicated innovation capital and governance"],
     "help": ""
+  },
+  {
+    "id": "pulse-5",
+    "lab": "Pulse 5 – The commitment",
+    "text": "What is one innovation initiative you would seriously consider initiating in your organisation within the next 90 days?",
+    "format": "points",
+    "options": [],
+    "help": "Describe one initiative. Add up to five points about how you would put it into action."
   }
 ]

@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { changeState, readState } from '../../../lib/store';
 import { cookieFor, passwordHash, sameSecret, sessionFor, signIn, tokenKey, validPassword } from '../../../lib/auth';
 import { analyse } from '../../../lib/analysis';
+import { questionFormat, responseStats, themeCandidates } from '../../../lib/responses';
 import { geminiCredentials, geminiSettings, saveGeminiKey } from '../../../lib/settings';
 
 export const runtime = 'nodejs';
+export const maxDuration = 90;
 
 class RequestError extends Error {
   constructor(message, status = 400) {
@@ -35,10 +37,16 @@ function roundView(round, show, guests = []) {
   if (!round) return null;
   const entries = Object.entries(round.answers);
   const initials = show ? new Map(guests.map(guest => [guest.id, initialsFor(guest.name)])) : null;
+  const answers = show ? entries.map(([id, text]) => ({
+    id, text, avatar: round.avatars[id] ?? 0, initials: initials.get(id),
+    ranking: round.rankings?.[id], points: round.points?.[id],
+  })) : [];
   return {
     id: round.id, question: round.question, status: round.status, live: round.live, count: entries.length,
-    answers: show ? entries.map(([id, text]) => ({ id, text, avatar: round.avatars[id] ?? 0, initials: initials.get(id) })) : [],
+    answers, stats: show ? responseStats(round.question, answers) : [],
+    canAnalyse: show && round.status === 'revealed' && themeCandidates(round).length >= 2,
     analysis: show ? round.analysis : null,
+    analysisStatus: show ? analysisStatus(round) : null,
     spotlight: show ? round.spotlight : null,
   };
 }
@@ -74,6 +82,8 @@ export async function GET(req) {
         roster: guests.map(({ id, name }) => ({ id, name })),
         round: guest ? roundView(round, false) : null,
         answer: guest && round ? round.answers[guest.id] || '' : '',
+        ranking: guest && round ? round.rankings?.[guest.id] || [] : [],
+        points: guest && round ? round.points?.[guest.id] || [] : [],
       });
     }
     const joined = guests.filter(guest => guest.joined);
@@ -114,13 +124,49 @@ function login(state, req, body) {
   return { role, token: signIn(state, role, role === 'guest' ? guest.id : undefined) };
 }
 
+function analysisStatus(round) {
+  const job = round.analysisRun;
+  if (job?.status === 'running' && Date.now() - job.startedAt > 90000) return 'failed';
+  return job?.status;
+}
+
+function queueAnalysis(round) {
+  if (analysisStatus(round) === 'running') return null;
+  const id = randomUUID();
+  round.analysisRun = { id, status: 'running', startedAt: Date.now() };
+  return { id, roundId: round.id };
+}
+
+function startAnalysis(job) {
+  if (!job) return;
+  after(async () => {
+    let analysis;
+    try {
+      const state = await readState();
+      const round = state.rounds.find(item => item.id === job.roundId);
+      if (!round || round.analysisRun?.id !== job.id) return;
+      analysis = await analyse(round, geminiCredentials(state));
+    } catch {
+      // Failed or timed-out grouping leaves the original answers visible.
+    }
+    await changeState(state => {
+      const round = state.rounds.find(item => item.id === job.roundId);
+      if (!round || round.analysisRun?.id !== job.id) return;
+      round.analysisRun.status = analysis ? 'ready' : 'failed';
+      if (analysis) round.analysis = analysis;
+    });
+  });
+}
+
 function questionFields(body) {
   const text = entered(body.text, 600);
   const lab = entered(body.lab, 140);
-  const options = Array.isArray(body.options) ? [...new Set(body.options.map(option => entered(option, 240)).filter(Boolean))] : [];
+  const format = ['ranking', 'points'].includes(body.format) ? body.format : undefined;
+  const options = format !== 'points' && Array.isArray(body.options) ? [...new Set(body.options.map(option => entered(option, 240)).filter(Boolean))] : [];
   check(text && text.length <= 600 && lab.length <= 140, 'Enter a question of up to 600 characters.');
   check(options.length !== 1 && options.length <= 10 && options.every(option => option.length <= 240), 'Use two to ten distinct choices, or leave choices blank.');
-  return { text, lab, options };
+  check(format !== 'ranking' || options.length >= 2, 'A ranking question needs at least two choices.');
+  return { text, lab, options, format };
 }
 
 function revokeGuestSessions(state, guestIds) {
@@ -212,7 +258,8 @@ function adminChange(state, body) {
     if (action === 'reveal') {
       check(round.status === 'open', 'This round is already closed.', 409);
       round.status = 'revealed';
-      return { ok: true, shouldAnalyse: geminiSettings(state).keySource !== 'none' && !round.question.options.length && Object.keys(round.answers).length >= 2 };
+      const job = geminiSettings(state).keySource !== 'none' && themeCandidates(round).length >= 2 ? queueAnalysis(round) : null;
+      return { ok: true, job };
     }
     else if (action === 'lobby') {
       check(round.status !== 'open', 'Close the round before returning to the lobby.', 409);
@@ -250,18 +297,15 @@ export async function POST(req) {
     }
 
     if (body.action === 'analyse') {
-      const state = await readState();
-      check(sessionFor(state, req, 'admin'), 'Sign in as admin.', 401);
-      const round = active(state);
-      check(round && round.id === body.roundId && round.status === 'revealed', 'Close and reveal the round first.', 409);
-      check(!round.question.options.length && Object.keys(round.answers).length >= 2, 'At least two written responses are needed.');
-      let analysis;
-      try { analysis = await analyse(round, geminiCredentials(state)); }
-      catch (error) { throw new RequestError(error.message.startsWith('Gemini') ? error.message : 'Gemini analysis failed. Try again.', 502); }
-      await changeState(current => {
-        const completed = current.rounds.find(item => item.id === round.id);
-        completed.analysis = analysis;
+      const job = await changeState(state => {
+        check(sessionFor(state, req, 'admin'), 'Sign in as admin.', 401);
+        const round = active(state);
+        check(round && round.id === body.roundId && round.status === 'revealed', 'Close and reveal the round first.', 409);
+        check(themeCandidates(round).length >= 2, 'At least two written or custom responses are needed.');
+        check(geminiSettings(state).keySource !== 'none', 'Add a Gemini API key in Settings first.');
+        return queueAnalysis(round);
       });
+      startAnalysis(job);
       return json({ ok: true });
     }
 
@@ -278,15 +322,35 @@ export async function POST(req) {
         const guest = state.guests.find(item => item.id === session.guestId && item.enabled);
         check(guest, 'Guest access has been removed.', 403);
         check(round && round.id === body.roundId && round.status === 'open', 'This round has closed or changed.', 409);
-        const text = entered(body.text, 2500);
-        check(text && text.length <= 2500, 'Enter an answer of up to 2,500 characters.');
+        const format = questionFormat(round.question);
+        let text;
+        if (format === 'ranking') {
+          const { ranking } = body;
+          const options = round.question.options;
+          check(Array.isArray(ranking) && ranking.length === options.length &&
+            new Set(ranking).size === options.length && ranking.every(option => options.includes(option)),
+          'Rank each choice once.');
+          (round.rankings ??= {})[guest.id] = ranking;
+          text = ranking.map((option, index) => `${index + 1}. ${option}`).join('\n');
+        } else if (format === 'points') {
+          const points = Array.isArray(body.points) ? body.points.map(point => entered(point, 500)).filter(Boolean) : [];
+          check(points.length >= 1 && points.length <= 5 && points.every(point => point.length <= 500),
+            'Enter one to five points of up to 500 characters each.');
+          (round.points ??= {})[guest.id] = points;
+          text = points.join('\n');
+        } else {
+          text = entered(body.text, 2500);
+          check(text && text.length <= 2500, 'Enter an answer of up to 2,500 characters.');
+        }
         round.answers[guest.id] = text;
         round.avatars[guest.id] = guest.avatar;
         return { ok: true };
       }
       return adminChange(state, body);
     });
-    const response = json(result.logout ? { ok: true } : result);
+    const { job, ...payload } = result;
+    startAnalysis(job);
+    const response = json(payload.logout ? { ok: true } : payload);
     if (result.logout) response.cookies.delete(cookieFor(role));
     return response;
   } catch (error) {
