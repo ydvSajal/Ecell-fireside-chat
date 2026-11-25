@@ -279,7 +279,7 @@ function RankingEditor({ options, ranking, limit, onChange }) {
 }
 
 function InitiativeEditor({ initiative, steps, onInitiative, onSteps }) {
-  const fields = Array.from({ length: 5 }, (_, index) => steps[index] || '');
+  const fields = steps.length ? steps : [''];
   return <>
     <div>
       <label htmlFor="innovation-initiative">Innovation initiative</label>
@@ -287,12 +287,15 @@ function InitiativeEditor({ initiative, steps, onInitiative, onSteps }) {
     </div>
     <fieldset>
       <legend>Steps</legend>
-      <p className="help">Add one to five steps. You can leave the other fields blank.</p>
+      <p className="help">Steps you would take to roll out the initiative.</p>
       {fields.map((step, index) => <div key={index}>
         <label htmlFor={`initiative-step-${index + 1}`}>Step {index + 1}</label>
         <textarea id={`initiative-step-${index + 1}`} rows={2} maxLength={500} value={step}
           onChange={e => onSteps(fields.map((item, i) => i === index ? e.target.value : item))} />
       </div>)}
+      {fields.length < 5 && <button type="button" className="quiet add-point" onClick={() => onSteps([...fields, ''])}>
+        <span aria-hidden="true">+ </span>Add step
+      </button>}
     </fieldset>
   </>;
 }
