@@ -3,7 +3,7 @@ import { after, NextResponse } from 'next/server';
 import { changeState, readState } from '../../../lib/store';
 import { cookieFor, passwordHash, sameSecret, sessionFor, signIn, tokenKey, validPassword } from '../../../lib/auth';
 import { analyse, testGemini } from '../../../lib/analysis';
-import { customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount, responseStats, themeCandidates } from '../../../lib/responses';
+import { customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount, REASON_LIMIT, REASON_MAX_LENGTH, responseStats, themeCandidates } from '../../../lib/responses';
 import { geminiCredentials, geminiSettings, saveGeminiKey } from '../../../lib/settings';
 
 export const runtime = 'nodejs';
@@ -171,8 +171,8 @@ function startAnalysis(job) {
 function questionFields(body, previous) {
   const text = entered(body.text, 600);
   const lab = entered(body.lab, 140);
-  const format = ['ranking', 'multi', 'points'].includes(body.format) ? body.format : undefined;
-  const options = format !== 'points' && Array.isArray(body.options) ? [...new Set(body.options.map(option => entered(option, 240)).filter(Boolean))] : [];
+  const format = ['ranking', 'multi', 'points', 'reasons'].includes(body.format) ? body.format : undefined;
+  const options = !['points', 'reasons'].includes(format) && Array.isArray(body.options) ? [...new Set(body.options.map(option => entered(option, 240)).filter(Boolean))] : [];
   check(text && text.length <= 600 && lab.length <= 140, 'Enter a question of up to 600 characters.');
   check(options.length !== 1 && options.length <= 10 && options.every(option => option.length <= 240), 'Use two to ten distinct choices, or leave choices blank.');
   check(!['ranking', 'multi'].includes(format) || options.length >= 2, 'This answer format needs at least two choices.');
@@ -181,7 +181,8 @@ function questionFields(body, previous) {
   }
   const rankLimit = format === 'ranking' ? previous?.rankLimit : undefined;
   const maxOptions = format === 'multi' ? 10 : format === 'ranking' ? previous?.maxOptions : undefined;
-  return { text, lab, options, format, rankLimit, maxOptions };
+  const savedFormat = !format && !options.length && previous?.id === 'pulse-3' ? 'written' : format;
+  return { text, lab, options, format: savedFormat, rankLimit, maxOptions };
 }
 
 function geminiFields(body) {
@@ -387,10 +388,13 @@ export async function POST(req) {
             'Enter one to five steps of up to 500 characters each.');
           (round.commitments ??= {})[guest.id] = { initiative, steps };
           text = [initiative, ...steps].join('\n');
-        } else if (format === 'points') {
-          const points = Array.isArray(body.points) ? body.points.map(point => entered(point, 500)).filter(Boolean) : [];
-          check(points.length >= 1 && points.length <= 5 && points.every(point => point.length <= 500),
-            'Enter one to five points of up to 500 characters each.');
+        } else if (format === 'points' || format === 'reasons') {
+          const reasons = format === 'reasons';
+          const limit = reasons ? REASON_LIMIT : 5;
+          const maxLength = reasons ? REASON_MAX_LENGTH : 500;
+          const points = Array.isArray(body.points) ? body.points.map(point => entered(point, maxLength)).filter(Boolean) : [];
+          check(points.length >= 1 && points.length <= limit && points.every(point => point.length <= maxLength),
+            reasons ? 'Enter one to three reasons of up to 240 characters each.' : 'Enter one to five points of up to 500 characters each.');
           (round.points ??= {})[guest.id] = points;
           text = points.join('\n');
         } else {

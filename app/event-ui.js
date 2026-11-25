@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount } from '../lib/responses';
+import { answerReasons, customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount, REASON_LIMIT, REASON_MAX_LENGTH } from '../lib/responses';
 
 const eventTitle = 'Corporate Innovation Action Lab';
 const avatarColors = [
@@ -151,15 +151,18 @@ function GuestRound({ data, event }) {
   const initiativeQuestion = round && isInitiativeQuestion(round.question);
   const initiative = initiativeDraft ?? data.initiative ?? '';
   const steps = pointsDraft ?? data.steps ?? [];
-  const points = pointsDraft ?? (data.points?.length ? data.points : ['']);
+  const reasons = format === 'reasons';
+  const pointFormat = reasons || format === 'points';
+  const savedPoints = reasons ? answerReasons(data.points, answer) : data.points;
+  const points = pointsDraft ?? (savedPoints?.length ? savedPoints : ['']);
   const previousCustom = Boolean(options.length && answer && !options.includes(answer));
   const customSelected = useCustomAnswer ?? previousCustom;
   const current = customSelected ? customDraft ?? (previousCustom ? answer : '') : draft ?? answer;
   const ready = format === 'ranking' ? ranking.length === ranks : format === 'multi' ? selections.length > 0
     : initiativeQuestion ? Boolean(initiative.trim()) && steps.some(step => step.trim())
-      : format === 'points' ? points.some(point => point.trim()) : Boolean(current.trim());
+      : pointFormat ? points.some(point => point.trim()) : Boolean(current.trim());
   const unchanged = format === 'ranking' ? !rankingDraft : format === 'multi' ? !selectionDraft
-    : format === 'points' ? !pointsDraft && initiativeDraft === null : current === answer;
+    : pointFormat ? !pointsDraft && initiativeDraft === null : current === answer;
   function editCustom(index, value) {
     const previous = rows[index]?.trim();
     const updated = Array.from({ length: slots }, (_, i) => i === index ? value : rows[i] || '');
@@ -184,7 +187,7 @@ function GuestRound({ data, event }) {
         e.preventDefault();
         setSaved(false);
         const payload = format === 'ranking' ? { ranking } : format === 'multi' ? { selections }
-          : initiativeQuestion ? { initiative, steps } : format === 'points' ? { points } : { text: current };
+          : initiativeQuestion ? { initiative, steps } : pointFormat ? { points } : { text: current };
         if (await event.send('answer', { roundId: round.id, ...payload })) setSaved(true);
       }}>
         {format === 'ranking' ? <RankingEditor options={choices} ranking={ranking} limit={ranks} onChange={items => {
@@ -203,7 +206,7 @@ function GuestRound({ data, event }) {
         }} onSteps={items => {
           setPointsDraft(items);
           setSaved(false);
-        }} /> : format === 'points' ? <PointsEditor points={points} help={round.question.help} onChange={items => {
+        }} /> : pointFormat ? <PointsEditor points={points} reasons={reasons} help={round.question.help} onChange={items => {
           setPointsDraft(items);
           setSaved(false);
         }} /> : options.length ? <fieldset>
@@ -300,14 +303,16 @@ function InitiativeEditor({ initiative, steps, onInitiative, onSteps }) {
   </>;
 }
 
-function PointsEditor({ points, help, onChange }) {
+function PointsEditor({ points, reasons, help, onChange }) {
+  const fields = reasons ? Array.from({ length: REASON_LIMIT }, (_, index) => points[index] || '') : points;
   return <fieldset>
-    <legend>Your commitment</legend>
-    {help && <p className="help">{help}</p>}
-    {points.map((point, index) => <label key={index}>Point {index + 1}
-      <textarea rows={2} maxLength={500} value={point} onChange={e => onChange(points.map((item, i) => i === index ? e.target.value : item))} />
+    <legend>{reasons ? 'Your reasons' : 'Your commitment'}</legend>
+    {(reasons || help) && <p className="help">{reasons ? 'Write one reason per box. You can give up to three.' : help}</p>}
+    {fields.map((point, index) => <label key={index}>{reasons ? 'Reason' : 'Point'} {index + 1}
+      <textarea rows={2} maxLength={reasons ? REASON_MAX_LENGTH : 500} value={point}
+        onChange={e => onChange(fields.map((item, i) => i === index ? e.target.value : item))} />
     </label>)}
-    {points.length < 5 && <button type="button" className="quiet add-point" onClick={() => onChange([...points, ''])}>Add another point</button>}
+    {!reasons && points.length < 5 && <button type="button" className="quiet add-point" onClick={() => onChange([...points, ''])}>Add another point</button>}
   </fieldset>;
 }
 
@@ -436,9 +441,9 @@ export function Projector() {
         </section>
         : <section className={'stage-round' + (showResults ? '' : ' stage-waiting')}>
           {round.question.lab && <p className="stage-context">{round.question.lab}</p>}
-          <h1 className={round.question.text.length > 105 ? 'long-question' : undefined}>{round.question.text}</h1>
+          <h1 className={format === 'reasons' || round.question.text.length > 105 ? 'long-question' : undefined}>{round.question.text}</h1>
           <p className="stage-count" role="status" aria-label={`${answered} answered out of ${joined} guests who joined`}>{answered} / {joined}</p>
-          {showResults && <div className="results">
+          {showResults && (format === 'reasons' ? <ReasonResults key={round.id} round={round} /> : <div className="results">
             {options.length > 0 ? <>
               <section className="option-section" aria-label="Preset options">
                 <OptionResults stats={presetStats} count={round.count} optionCount={optionCount} multi={format === 'multi'} />
@@ -453,7 +458,7 @@ export function Projector() {
               title={format === 'points' ? 'Action board' : themes.length ? 'Emerging themes and responses' : null} />}
             {round.analysisStatus === 'running' && <p className="stage-caption" role="status">Grouping similar responses…</p>}
             {round.analysis?.takeaway && <p className="stage-caption">{round.analysis.takeaway}</p>}
-          </div>}
+          </div>)}
           {!shown && <p className="stage-sub">{round.status === 'open' ? 'Send your answer from your phone.' : ''}</p>}
           {focused.length > 0 && <div className="spotlight" role="dialog" aria-modal="false" aria-label="Spotlighted response">
             {focused.map(answer => <div className="spotlight-answer" key={answer.id}>
@@ -467,9 +472,46 @@ export function Projector() {
   </main>;
 }
 
+function ReasonResults({ round }) {
+  const [selected, setSelected] = useState(null);
+  const reasons = round.answers.flatMap(answer => answerReasons(answer.points, answer.text)
+    .map((text, index) => ({ id: `${answer.id}:${index}`, text })));
+  const active = reasons.find(reason => reason.id === selected);
+  const { analysis, analysisStatus, status } = round;
+  const columns = Math.min(5, Math.max(2, Math.ceil(reasons.length / 9)));
+  return <div className="reason-results">
+    <section aria-label="Submitted reasons">
+      <h2>{reasons.length} {reasons.length === 1 ? 'reason' : 'reasons'}</h2>
+      <div className="reason-grid" style={{ '--reason-columns': columns }}>
+        {reasons.map(reason => <button type="button" className="response-card reason-card" key={reason.id}
+          onClick={() => setSelected(reason.id)}><span>{reason.text}</span></button>)}
+      </div>
+    </section>
+    <aside className="reason-analysis" aria-label="Gemini analysis">
+      <h2>Emerging themes</h2>
+      {analysis?.themes.length > 0 && <ul>
+        {analysis.themes.map(theme => <li key={theme.ids[0]}><span>{theme.label}</span>
+          <strong>{theme.count} guests</strong></li>)}
+      </ul>}
+      <div role="status">
+        {analysisStatus === 'running' ? <p>Gemini is reviewing the responses…</p>
+          : analysisStatus === 'failed' ? <p>Analysis unavailable. The moderator can retry.</p>
+            : analysis ? (!analysis.themes.length && <p>No recurring themes identified.</p>)
+              : <p>{status === 'open' ? 'Analysis begins after the moderator closes the round.' : 'No analysis available yet.'}</p>}
+      </div>
+      {analysis?.takeaway && <p>{analysis.takeaway}</p>}
+      {analysis?.nextStep && <p><strong>For discussion</strong> {analysis.nextStep}</p>}
+    </aside>
+    {active && !round.spotlight && <div className="spotlight" role="dialog" aria-label="Full reason">
+      <p>{active.text}</p>
+      <button type="button" className="quiet" onClick={() => setSelected(null)}>Back to reasons</button>
+    </div>}
+  </div>;
+}
+
 function Editor({ question, event, onClose }) {
   const [text, setText] = useState(question?.text || '');
-  const [format, setFormat] = useState(question?.format || 'standard');
+  const [format, setFormat] = useState(question?.format === 'written' ? 'standard' : question?.format || 'standard');
   const [dictation, setDictation] = useState('');
   const recognition = useRef(null);
   useEffect(() => () => recognition.current?.abort(), []);
@@ -499,9 +541,10 @@ function Editor({ question, event, onClose }) {
       <option value="standard">Multiple choice or written</option>
       <option value="ranking">Ranking</option>
       <option value="multi">Select multiple</option>
+      <option value="reasons">Written · up to three reasons</option>
       <option value="points">Action board · up to five points</option>
     </select></label>
-    {format !== 'points' && <label>Choices <span className="help">{format === 'ranking' ? 'Enter the choices to rank, one per line.' : 'One per line. Leave blank for a written answer.'}</span>
+    {format !== 'points' && format !== 'reasons' && <label>Choices <span className="help">{format === 'ranking' ? 'Enter the choices to rank, one per line.' : 'One per line. Leave blank for a written answer.'}</span>
       <textarea name="options" rows={4} defaultValue={question?.options.join('\n') || ''} />
     </label>}
     <div className="actions"><button disabled={event.busy}>Save question</button><button type="button" className="quiet" onClick={onClose}>Cancel</button></div>
@@ -648,7 +691,7 @@ export function Admin() {
           {question && <Editor key={question.id || 'new'} question={question.id ? question : null} event={event} onClose={() => setQuestion(null)} />}
           {data.questions.map((item, index) => <div className="list-row question-row" key={item.id}>
             <span className="ordinal">{index + 1}</span>
-            <div className="row-copy"><strong>{item.text}</strong><p>{[item.lab, item.format === 'points' ? 'Action board' : item.format === 'ranking' ? 'Ranking' : item.format === 'multi' ? 'Select multiple' : item.options.length ? `Poll · ${item.options.length} choices` : 'Written response'].filter(Boolean).join(' · ')}</p></div>
+            <div className="row-copy"><strong>{item.text}</strong><p>{[item.lab, item.format === 'reasons' ? 'Three reasons' : item.format === 'points' ? 'Action board' : item.format === 'ranking' ? 'Ranking' : item.format === 'multi' ? 'Select multiple' : item.options.length ? `Poll · ${item.options.length} choices` : 'Written response'].filter(Boolean).join(' · ')}</p></div>
             <div className="actions">
               <button className="quiet arrow" aria-label={`Move question ${index + 1} up`} disabled={busy || index === 0} onClick={() => send('question-move', { id: item.id, direction: 'up' })}>↑</button>
               <button className="quiet arrow" aria-label={`Move question ${index + 1} down`} disabled={busy || index + 1 === data.questions.length} onClick={() => send('question-move', { id: item.id, direction: 'down' })}>↓</button>

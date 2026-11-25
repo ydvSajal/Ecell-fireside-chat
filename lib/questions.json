@@ -36,9 +36,10 @@
   {
     "id": "pulse-3",
     "lab": "Pulse 3",
-    "text": "What is the single biggest reason promising ideas fail to become businesses in your company?",
+    "text": "What are the top three reasons promising ideas fail to become businesses in your company?",
     "options": [],
-    "help": ""
+    "help": "",
+    "format": "reasons"
   },
   {
     "id": "pulse-4",
