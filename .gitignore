@@ -1,0 +1,5 @@
+node_modules/
+.next/
+.action-labs/
+.env*
+!.env.example
