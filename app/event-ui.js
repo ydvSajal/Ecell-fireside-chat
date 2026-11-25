@@ -3,17 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const eventTitle = 'Corporate Innovation Action Lab';
-const faces = [
+const avatarColors = [
   ['#d8e4ff', '#3659ab'], ['#f8dfbd', '#9b4c21'], ['#d7ebda', '#276447'], ['#f3dbe7', '#923d69'],
   ['#e4ddf8', '#644aa2'], ['#f5e8ac', '#78601c'], ['#d4ebec', '#29646c'], ['#f6d8cb', '#a94c38'],
   ['#e1ecd2', '#4d693b'], ['#f4dfe6', '#a13f62'],
 ];
 
-function Avatar({ index = 0 }) {
-  const [background, color] = faces[index % faces.length];
-  return <span aria-hidden="true" className={'avatar face-' + index % 4} style={{ '--avatar-bg': background, '--avatar-ink': color }}>
-    <span className="face"><i /><i /><b /></span>
-  </span>;
+function Avatar({ index = 0, initials = '–', waiting = false }) {
+  const [background, color] = avatarColors[index % avatarColors.length];
+  return <span aria-hidden="true" className={waiting ? 'avatar waiting' : 'avatar'}
+    style={{ '--avatar-bg': background, '--avatar-ink': color }}>{initials}</span>;
 }
 
 function useEvent(view) {
@@ -119,7 +118,7 @@ function GuestRound({ data, event }) {
   const [saved, setSaved] = useState(false);
   const current = draft ?? answer;
   return <section className="entry">
-    <div className="person"><Avatar index={guest.avatar} />{guest.name}</div>
+    <div className="person"><Avatar index={guest.avatar} initials={guest.initials} />{guest.name}</div>
     {round ? <>
       {round.question.lab && <p className="context">{round.question.lab}</p>}
       <h1>{round.question.text}</h1>
@@ -179,8 +178,8 @@ export function Projector() {
           <h1>Take your seat.</h1>
           <p className="stage-sub">Scan to join the Corporate Innovation Action Lab.</p>
           <div className="avatar-board">
-            {data.ready.map(guest => <Avatar key={guest.id} index={guest.avatar} />)}
-            {Array.from({ length: Math.min(Math.max(total - data.ready.length, 0), 10) }, (_, i) => <span key={i} className="avatar waiting" aria-hidden="true">+</span>)}
+            {data.ready.map(guest => <Avatar key={guest.id} index={guest.avatar} initials={guest.initials} />)}
+            {data.waiting?.map(guest => <Avatar key={guest.id} index={guest.avatar} initials={guest.initials} waiting />)}
           </div>
           <p className="ready" aria-live="polite">{total ? `${data.ready.length} of ${total} guests ready` : 'Waiting for guests'}</p>
           <JoinCode />
@@ -200,7 +199,7 @@ export function Projector() {
             </div> : <div className="bubbles">
               {round.answers.map(answer => <button className={'bubble' + (theme && !theme.ids.includes(answer.id) ? ' dim' : '')}
                 key={answer.id} title={answer.text} onClick={() => setSelected(answer.id)}>
-                <Avatar index={answer.avatar} /><span>{answer.text}</span>
+                <Avatar index={answer.avatar} initials={answer.initials} /><span>{answer.text}</span>
               </button>)}
             </div>}
             {round.analysis && <aside className="themes">
@@ -216,7 +215,7 @@ export function Projector() {
           </div>}
           {!shown && <p className="stage-sub">{round.status === 'open' ? 'Send your answer from your phone.' : ''}</p>}
           {focused && <div className="spotlight" role="dialog" aria-modal="false" aria-label="Spotlighted response">
-            <Avatar index={focused.avatar} /><p>{focused.text}</p>
+            <Avatar index={focused.avatar} initials={focused.initials} /><p>{focused.text}</p>
             {selected && <button type="button" className="quiet" onClick={() => setSelected(null)}>Back to responses</button>}
           </div>}
         </section>}
@@ -374,7 +373,7 @@ export function Admin() {
             {guests.map(item => {
               const answer = round?.answers.find(response => response.id === item.id);
               return <div className="list-row" key={item.id}>
-                <div className="person"><Avatar index={item.avatar} /><div><strong>{item.name}</strong>
+                <div className="person"><Avatar index={item.avatar} initials={item.initials} /><div><strong>{item.name}</strong>
                   {answer && <p className="row-answer">{answer.text}</p>}</div></div>
                 {answer && !round.question.options.length && (round.live || round.status === 'revealed') ? <button className="quiet" disabled={busy} onClick={() =>
                   manage('spotlight', { id: round.spotlight === item.id ? null : item.id })}>{round.spotlight === item.id ? 'Clear spotlight' : 'Spotlight'}</button>
@@ -407,7 +406,7 @@ export function Admin() {
           {guest && <GuestEditor key={guest.id || 'new'} guest={guest.id ? guest : null} event={event} onClose={() => setGuest(null)} />}
           {!guests.length && !guest && <p>Add each guest’s name and password. Their names will appear in the sign-in list.</p>}
           {guests.map(item => <div className="list-row" key={item.id}>
-            <span className="person"><Avatar index={item.avatar} />{item.name}</span>
+            <span className="person"><Avatar index={item.avatar} initials={item.initials} />{item.name}</span>
             <span className="state">{item.joined ? 'Ready' : 'Not joined'}</span>
             <div className="actions"><button className="quiet" onClick={() => setGuest(item)}>Edit</button>
               <button className="quiet danger" disabled={busy} onClick={async () => {

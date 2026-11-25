@@ -21,14 +21,23 @@ const check = (condition, message, status) => {
 const json = (value, status = 200) => NextResponse.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 const active = state => state.rounds.find(round => round.id === state.current);
 const entered = (value, max) => typeof value === 'string' ? value.trim().slice(0, max + 1) : '';
-const viewGuest = ({ id, name, joined, avatar, enabled }) => ({ id, name, joined, avatar, enabled });
+function initialsFor(name) {
+  const words = name.replace(/^(?:(?:prof|dr|mr|mrs|ms)\.?\s+|\((?:prof|dr|mr|mrs|ms)\.?\)\s*)+/iu, '')
+    .match(/[\p{L}\p{N}][\p{L}\p{M}\p{N}]*/gu) || [];
+  return [words[0], words.length > 1 ? words.at(-1) : null]
+    .filter(Boolean).map(word => Array.from(word)[0]).join('').toUpperCase() || '–';
+}
 
-function roundView(round, show) {
+const badge = ({ id, name, avatar }) => ({ id, avatar, initials: initialsFor(name) });
+const viewGuest = guest => ({ ...badge(guest), name: guest.name, joined: guest.joined, enabled: guest.enabled });
+
+function roundView(round, show, guests = []) {
   if (!round) return null;
   const entries = Object.entries(round.answers);
+  const initials = show ? new Map(guests.map(guest => [guest.id, initialsFor(guest.name)])) : null;
   return {
     id: round.id, question: round.question, status: round.status, live: round.live, count: entries.length,
-    answers: show ? entries.map(([id, text]) => ({ id, text, avatar: round.avatars[id] ?? 0 })) : [],
+    answers: show ? entries.map(([id, text]) => ({ id, text, avatar: round.avatars[id] ?? 0, initials: initials.get(id) })) : [],
     analysis: show ? round.analysis : null,
     spotlight: show ? round.spotlight : null,
   };
@@ -48,7 +57,7 @@ export async function GET(req) {
     const guests = state.guests.filter(guest => guest.enabled);
     if (mode === 'admin') {
       if (!sessionFor(state, req, 'admin')) return json({ authenticated: false });
-      return json({ authenticated: true, questions: state.questions, guests: state.guests.map(viewGuest), round: roundView(round, true),
+      return json({ authenticated: true, questions: state.questions, guests: state.guests.map(viewGuest), round: roundView(round, true, state.guests),
         gemini: geminiSettings(state),
         history: state.rounds.filter(item => item.id !== state.current).map(item => ({
           id: item.id, text: item.question.text, count: Object.keys(item.answers).length,
@@ -68,8 +77,9 @@ export async function GET(req) {
     }
     return json({
       guestCount: guests.length,
-      ready: guests.filter(guest => guest.joined).map(({ id, avatar }) => ({ id, avatar })),
-      round: roundView(round, round?.live || round?.status === 'revealed'),
+      ready: guests.filter(guest => guest.joined).map(badge),
+      waiting: guests.filter(guest => !guest.joined).map(badge),
+      round: roundView(round, round?.live || round?.status === 'revealed', state.guests),
     });
   } catch (error) {
     return handleError(error);
