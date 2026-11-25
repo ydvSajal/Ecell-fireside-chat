@@ -341,9 +341,10 @@ function OptionResults({ stats, count, optionCount, multi, showCaption = true })
       {selected.map(({ label, count: votes, score, first, custom }) => {
         const value = ranked ? score : votes;
         const share = max ? Math.round(value / max * 100) : 0;
-        const detail = ranked ? `${score} points · ${first} first-place` : `${votes} ${votes === 1 ? 'vote' : 'votes'}`;
+        const detail = ranked ? `${score} points · ${votes} ranked · ${first} first-place` : `${votes} ${votes === 1 ? 'vote' : 'votes'}`;
         return <div key={label} className={custom ? 'vote custom-vote' : 'vote'} style={{ '--vote-share': share + '%' }} title={`${label}, ${detail}`}>
-          <span className="vote-label">{label}{ranked && <small>{first} first-place</small>}</span>
+          <span className="vote-label"><span>{label}</span>{ranked && <small>{votes} ranked · {first} first-place</small>}
+            {multi && <small>{votes} of {count} respondents</small>}</span>
           <strong className="vote-count" aria-label={detail}>{multi ? `${share}%` : value}</strong>
         </div>;
       })}
@@ -443,21 +444,22 @@ export function Projector() {
           {round.question.lab && <p className="stage-context">{round.question.lab}</p>}
           <h1 className={format === 'reasons' || round.question.text.length > 105 ? 'long-question' : undefined}>{round.question.text}</h1>
           <p className="stage-count" role="status" aria-label={`${answered} answered out of ${joined} guests who joined`}>{answered} / {joined}</p>
-          {showResults && (format === 'reasons' ? <ReasonResults key={round.id} round={round} /> : <div className="results">
-            {options.length > 0 ? <>
-              <section className="option-section" aria-label="Preset options">
-                <OptionResults stats={presetStats} count={round.count} optionCount={optionCount} multi={format === 'multi'} />
-              </section>
-              <section className="option-section custom-section" aria-label="Custom answers">
-                {customStats.length > 0 ? <OptionResults stats={customStats} count={round.count}
-                  optionCount={optionCount} multi={format === 'multi'} showCaption={false} />
-                  : written.length > 0 ? <ResponseBoard answers={written} themes={themes} onOpen={setSelected} mergeExact />
-                    : <p className="stage-caption">No custom answers yet.</p>}
-              </section>
-            </> : <ResponseBoard answers={written} themes={themes} onOpen={setSelected}
-              title={format === 'points' ? 'Action board' : themes.length ? 'Emerging themes and responses' : null} />}
-            {round.analysisStatus === 'running' && <p className="stage-caption" role="status">Grouping similar responses…</p>}
-            {round.analysis?.takeaway && <p className="stage-caption">{round.analysis.takeaway}</p>}
+          {showResults && (format === 'reasons' ? <ReasonResults key={round.id} round={round} /> : <div className="projection-results">
+            <div className="results">
+              {options.length > 0 ? <>
+                <section className="option-section" aria-label="Preset options">
+                  <OptionResults stats={presetStats} count={round.count} optionCount={optionCount} multi={format === 'multi'} />
+                </section>
+                <section className="option-section custom-section" aria-label="Custom answers">
+                  {customStats.length > 0 ? <OptionResults stats={customStats} count={round.count}
+                    optionCount={optionCount} multi={format === 'multi'} showCaption={false} />
+                    : written.length > 0 ? <ResponseBoard answers={written} themes={themes} onOpen={setSelected} mergeExact />
+                      : <p className="stage-caption">No custom answers yet.</p>}
+                </section>
+              </> : <ResponseBoard answers={written} themes={format === 'points' ? [] : themes} onOpen={setSelected}
+                title={format === 'points' ? 'Action board' : themes.length ? 'Emerging themes and responses' : null} />}
+            </div>
+            <ProjectorAnalysis round={round} />
           </div>)}
           {!shown && <p className="stage-sub">{round.status === 'open' ? 'Send your answer from your phone.' : ''}</p>}
           {focused.length > 0 && <div className="spotlight" role="dialog" aria-modal="false" aria-label="Spotlighted response">
@@ -477,9 +479,8 @@ function ReasonResults({ round }) {
   const reasons = round.answers.flatMap(answer => answerReasons(answer.points, answer.text)
     .map((text, index) => ({ id: `${answer.id}:${index}`, text })));
   const active = reasons.find(reason => reason.id === selected);
-  const { analysis, analysisStatus, status } = round;
   const columns = Math.min(5, Math.max(2, Math.ceil(reasons.length / 9)));
-  return <div className="reason-results">
+  return <div className="projection-results">
     <section aria-label="Submitted reasons">
       <h2>{reasons.length} {reasons.length === 1 ? 'reason' : 'reasons'}</h2>
       <div className="reason-grid" style={{ '--reason-columns': columns }}>
@@ -487,26 +488,41 @@ function ReasonResults({ round }) {
           onClick={() => setSelected(reason.id)}><span>{reason.text}</span></button>)}
       </div>
     </section>
-    <aside className="reason-analysis" aria-label="Gemini analysis">
-      <h2>Emerging themes</h2>
-      {analysis?.themes.length > 0 && <ul>
-        {analysis.themes.map(theme => <li key={theme.ids[0]}><span>{theme.label}</span>
-          <strong>{theme.count} guests</strong></li>)}
-      </ul>}
-      <div role="status">
-        {analysisStatus === 'running' ? <p>Gemini is reviewing the responses…</p>
-          : analysisStatus === 'failed' ? <p>Analysis unavailable. The moderator can retry.</p>
-            : analysis ? (!analysis.themes.length && <p>No recurring themes identified.</p>)
-              : <p>{status === 'open' ? 'Analysis begins after the moderator closes the round.' : 'No analysis available yet.'}</p>}
-      </div>
-      {analysis?.takeaway && <p>{analysis.takeaway}</p>}
-      {analysis?.nextStep && <p><strong>For discussion</strong> {analysis.nextStep}</p>}
-    </aside>
+    <ProjectorAnalysis round={round} />
     {active && !round.spotlight && <div className="spotlight" role="dialog" aria-label="Full reason">
       <p>{active.text}</p>
       <button type="button" className="quiet" onClick={() => setSelected(null)}>Back to reasons</button>
     </div>}
   </div>;
+}
+
+function AnalysisContent({ analysis }) {
+  return <>
+    {analysis.takeaway && <p className="analysis-takeaway">{analysis.takeaway}</p>}
+    {analysis.themes?.length > 0 && <div className="analysis-themes">
+      <h3>Recurring themes</h3>
+      <ul>{analysis.themes.map(theme => <li key={theme.ids[0]}><span>{theme.label}</span>
+        <strong>{theme.count} guests</strong></li>)}</ul>
+    </div>}
+    {analysis.observations?.length > 0 && <div className="analysis-observations">
+      <h3>What the results suggest</h3>
+      <ul>{analysis.observations.map(observation => <li key={observation}>{observation}</li>)}</ul>
+    </div>}
+    {analysis.nextStep && <div><h3>For discussion</h3><p>{analysis.nextStep}</p></div>}
+  </>;
+}
+
+function ProjectorAnalysis({ round: { analysis, analysisStatus, status, count } }) {
+  return <aside className="projector-analysis analysis-content" aria-label="Gemini analysis">
+    <h2>Gemini analysis</h2>
+    <div role="status">
+      {analysisStatus === 'running' ? <p>Reviewing the responses…</p>
+        : analysisStatus === 'failed' ? <p>Analysis unavailable. The moderator can retry.</p>
+          : !analysis && <p>{status === 'open' ? 'Analysis starts when the round closes.'
+            : count ? 'The moderator can generate analysis.' : 'No responses to analyse.'}</p>}
+    </div>
+    {analysis && <AnalysisContent analysis={analysis} />}
+  </aside>;
 }
 
 function Editor({ question, event, onClose }) {
@@ -571,7 +587,7 @@ function GeminiEditor({ settings, event }) {
   }[settings.keySource];
   return <section className="panel">
     <h2>Gemini settings</h2>
-    <p>{source} Gemini groups written answers after a round closes.</p>
+      <p>{source} Gemini analyses votes, rankings and written answers after a round closes.</p>
     {!settings.canStoreKey && <p className="help">Set SETTINGS_ENCRYPTION_KEY on the server to save a key here.</p>}
     <form className="editor" key={settings.model + '/' + settings.keySource} onSubmit={async e => {
       const form = e.currentTarget;
@@ -661,13 +677,10 @@ export function Admin() {
               <div className="actions">
                 {round.status === 'open' ? <button disabled={busy} onClick={() => manage('reveal')}>Close and reveal</button>
                   : <><button className="quiet" disabled={busy} onClick={() => manage('lobby')}>Return to lobby</button>
-                    {round.canAnalyse && data.gemini.keySource !== 'none' &&
-                    <button className="quiet" disabled={busy || round.analysisStatus === 'running'} onClick={() => manage('analyse')}>
-                      {round.analysisStatus === 'running' ? 'Grouping responses…' : round.analysisStatus === 'failed' ? 'Retry grouping' : round.analysis ? 'Refresh themes' : 'Generate themes'}
-                    </button>}</>}
+                    {data.gemini.keySource !== 'none' && <AnalysisButton round={round} busy={busy} send={send} />}</>}
               </div>
-              {round.canAnalyse && data.gemini.keySource === 'none' && <p className="help">Add a Gemini key in Settings to group similar responses.</p>}
-              {round.analysisStatus === 'failed' && <p className="help" role="status">Grouping was unavailable. The original responses are still visible.</p>}
+              {round.canAnalyse && data.gemini.keySource === 'none' && <p className="help">Add a Gemini key in Settings to analyse responses.</p>}
+              {round.analysisStatus === 'failed' && <p className="help" role="status">Gemini analysis was unavailable.</p>}
             </div>}
             <form className={round ? 'question-controls' : undefined} onSubmit={e => { e.preventDefault(); publish(selection); }}>
               {round && <div className="actions">
@@ -732,8 +745,8 @@ export function Admin() {
               }}>Clear results</button>}
             </div>
           </div>
-          {round && <Result text={round.question.text} count={round.count} takeaway={round.analysis?.takeaway} nextStep={round.analysis?.nextStep} />}
-          {data.history.map(item => <Result key={item.id} {...item} />)}
+          {[...(round ? [{ ...round, text: round.question.text }] : []), ...data.history].map(item =>
+            <Result key={item.id} round={item} busy={busy} send={send} hasKey={data.gemini.keySource !== 'none'} />)}
           {!round && !data.history.length && <p>Published rounds will appear here with response totals.</p>}
         </section>}
       </>}
@@ -764,17 +777,16 @@ function ResponseFeed({ round, guests, busy, manage }) {
       {stats.length > 0 && <details className="response-stats" open>
         <summary>Question stats</summary>
         {stats.map(stat => <div className="stat-line" key={stat.label}>
-          <span>{stat.label}</span><strong>{stat.score === undefined ? format === 'multi' ? `${round.count ? Math.round(stat.count / round.count * 100) : 0}% · ${stat.count}` : stat.count : `${stat.score} pts · ${stat.first} first`}</strong>
+          <span>{stat.label}</span><strong>{stat.score === undefined ? format === 'multi' ? `${round.count ? Math.round(stat.count / round.count * 100) : 0}% · ${stat.count}` : stat.count : `${stat.score} pts · ${stat.count} ranked · ${stat.first} first`}</strong>
         </div>)}
         {questionFormat(round.question) === 'choice' && <div className="stat-line">
           <span>Custom responses</span><strong>{answers.length - stats.reduce((sum, stat) => sum + stat.count, 0)}</strong>
         </div>}
       </details>}
-      {round.analysis?.themes?.length > 0 && <details className="response-stats">
-        <summary>Gemini themes</summary>
-        {round.analysis.themes.map((theme, index) => <div className="stat-line" key={index}><span>{theme.label}</span><strong>{theme.count}</strong></div>)}
+      {round.analysis && <details className="response-stats analysis-content" open>
+        <summary>Gemini analysis</summary>
+        <AnalysisContent analysis={round.analysis} />
       </details>}
-      {round.analysis?.takeaway && <p className="help">{round.analysis.takeaway}</p>}
       {answers.length > 0 ? <>
         <label>Filter by guest<select value={filter} onChange={e => setFilter(e.target.value)}>
           <option value="">All guests</option>
@@ -825,9 +837,23 @@ function SharedGuestPassword({ event, count }) {
   </section>;
 }
 
-function Result({ text, count, takeaway, nextStep }) {
+function AnalysisButton({ round, busy, send }) {
+  if (!round.canAnalyse) return null;
+  const running = round.analysisStatus === 'running';
+  return <button type="button" className="quiet" disabled={busy || running} onClick={() => send('analyse', { roundId: round.id })}>
+    {running ? 'Analysing responses…' : round.analysisStatus === 'failed' ? 'Retry analysis' : round.analysis ? 'Refresh analysis' : 'Generate analysis'}
+  </button>;
+}
+
+function Result({ round, busy, send, hasKey }) {
+  const { text, count, analysis } = round;
   return <article className="list-row">
-    <div className="row-copy"><strong>{text}</strong>{takeaway && <p>{takeaway}</p>}{nextStep && <p><b>Next step</b> {nextStep}</p>}</div>
-    <span className="state">{count} {count === 1 ? 'response' : 'responses'}</span>
+    <div className="row-copy"><strong>{text}</strong>
+      {analysis && <details className="analysis-content"><summary>Gemini analysis</summary><AnalysisContent analysis={analysis} /></details>}
+    </div>
+    <div className="actions">
+      <span className="state">{count} {count === 1 ? 'response' : 'responses'}</span>
+      {hasKey && <AnalysisButton round={round} busy={busy} send={send} />}
+    </div>
   </article>;
 }

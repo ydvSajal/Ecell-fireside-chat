@@ -3,7 +3,7 @@ import { after, NextResponse } from 'next/server';
 import { changeState, readState } from '../../../lib/store';
 import { cookieFor, passwordHash, sameSecret, sessionFor, signIn, tokenKey, validPassword } from '../../../lib/auth';
 import { analyse, testGemini } from '../../../lib/analysis';
-import { customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount, REASON_LIMIT, REASON_MAX_LENGTH, responseStats, themeCandidates } from '../../../lib/responses';
+import { customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount, REASON_LIMIT, REASON_MAX_LENGTH, responseStats } from '../../../lib/responses';
 import { geminiCredentials, geminiSettings, saveGeminiKey } from '../../../lib/settings';
 
 export const runtime = 'nodejs';
@@ -22,6 +22,7 @@ const check = (condition, message, status) => {
 
 const json = (value, status = 200) => NextResponse.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 const active = state => state.rounds.find(round => round.id === state.current);
+const canAnalyse = round => round?.status === 'revealed' && Object.keys(round.answers).length > 0;
 const entered = (value, max) => typeof value === 'string' ? value.trim().slice(0, max + 1) : '';
 function initialsFor(name) {
   const words = name.replace(/^(?:(?:prof|dr|mr|mrs|ms)\.?\s+|\((?:prof|dr|mr|mrs|ms)\.?\)\s*)+/iu, '')
@@ -52,7 +53,7 @@ function roundView(round, show, guests = []) {
   return {
     id: round.id, question: round.question, status: round.status, live: round.live, count: entries.length,
     answers, stats: show ? responseStats(round.question, answers) : [],
-    canAnalyse: show && round.status === 'revealed' && themeCandidates(round).length >= 2,
+    canAnalyse: show && canAnalyse(round),
     analysis: show ? round.analysis : null,
     analysisStatus: show ? analysisStatus(round) : null,
     spotlight: show ? round.spotlight : null,
@@ -78,7 +79,7 @@ export async function GET(req) {
         archivedCount: state.rounds.filter(item => item.archived).length,
         history: state.rounds.filter(item => !item.archived && item.id !== state.current).map(item => ({
           id: item.id, text: item.question.text, count: Object.keys(item.answers).length,
-          takeaway: item.analysis?.takeaway, nextStep: item.analysis?.nextStep,
+          analysis: item.analysis, analysisStatus: analysisStatus(item), canAnalyse: canAnalyse(item),
         })).reverse(),
       });
     }
@@ -145,6 +146,11 @@ function queueAnalysis(round) {
   const id = randomUUID();
   round.analysisRun = { id, status: 'running', startedAt: Date.now() };
   return { id, roundId: round.id };
+}
+
+function closeRound(state, round) {
+  round.status = 'revealed';
+  return canAnalyse(round) && geminiSettings(state).keySource !== 'none' ? queueAnalysis(round) : null;
 }
 
 function startAnalysis(job) {
@@ -270,12 +276,13 @@ function adminChange(state, body) {
       'The active round has changed. Try again with the current question.', 409);
     const question = state.questions.find(item => item.id === id);
     check(question, 'Question not found.', 404);
-    if (round?.status === 'open') round.status = 'revealed';
+    const job = round?.status === 'open' ? closeRound(state, round) : null;
     state.current = randomUUID();
     state.rounds.push({
       id: state.current, question: { ...question }, live: body.live === true, status: 'open', answers: {}, avatars: {},
       analysis: null, spotlight: null,
     });
+    return { ok: true, job };
   } else if (action === 'results-clear') {
     check(state.current === (body.roundId ?? null), 'The active round has changed. Check it before clearing results.', 409);
     for (const item of state.rounds) {
@@ -289,9 +296,7 @@ function adminChange(state, body) {
     check(round && round.id === body.roundId, 'The active round has changed.', 409);
     if (action === 'reveal') {
       check(round.status === 'open', 'This round is already closed.', 409);
-      round.status = 'revealed';
-      const job = geminiSettings(state).keySource !== 'none' && themeCandidates(round).length >= 2 ? queueAnalysis(round) : null;
-      return { ok: true, job };
+      return { ok: true, job: closeRound(state, round) };
     }
     else if (action === 'lobby') {
       check(round.status !== 'open', 'Close the round before returning to the lobby.', 409);
@@ -344,9 +349,9 @@ export async function POST(req) {
     if (body.action === 'analyse') {
       const job = await changeState(state => {
         check(sessionFor(state, req, 'admin'), 'Sign in as admin.', 401);
-        const round = active(state);
-        check(round && round.id === body.roundId && round.status === 'revealed', 'Close and reveal the round first.', 409);
-        check(themeCandidates(round).length >= 2, 'At least two written or custom responses are needed.');
+        const round = state.rounds.find(item => item.id === body.roundId && !item.archived);
+        check(round?.status === 'revealed', 'Close and reveal the round first.', 409);
+        check(canAnalyse(round), 'At least one response is needed.');
         check(geminiSettings(state).keySource !== 'none', 'Add a Gemini API key in Settings first.');
         return queueAnalysis(round);
       });
