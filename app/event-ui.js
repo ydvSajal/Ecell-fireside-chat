@@ -181,13 +181,6 @@ function GuestRound({ data, event }) {
           : format === 'points' ? { points } : { text: current };
         if (await event.send('answer', { roundId: round.id, ...payload })) setSaved(true);
       }}>
-        {slots > 0 && <fieldset className="custom-rows">
-          <legend>Add your own options</legend>
-          <p className="help">{format === 'ranking' ? 'Write an option here, then add it to your ranking below.' : 'Write an option here, then select it below.'}</p>
-          {Array.from({ length: slots }, (_, index) => <label key={index}>Custom option {index + 1}
-            <input value={rows[index] || ''} maxLength={240} onChange={e => editCustom(index, e.target.value)} />
-          </label>)}
-        </fieldset>}
         {format === 'ranking' ? <RankingEditor options={choices} ranking={ranking} limit={ranks} onChange={items => {
           setRankingDraft(items);
           setSaved(false);
@@ -227,6 +220,13 @@ function GuestRound({ data, event }) {
           {round.question.help && <span className="help">{round.question.help}</span>}
           <textarea rows={5} maxLength={2500} value={current} onChange={e => { setDraft(e.target.value); setSaved(false); }} required />
         </label>}
+        {slots > 0 && <details className="custom-rows">
+          <summary>Add your own options</summary>
+          <p className="help">{format === 'ranking' ? 'Write an option here, then tap it in the list above to rank it.' : 'Write an option here, then select it in the list above.'}</p>
+          {Array.from({ length: slots }, (_, index) => <label key={index}>Custom option {index + 1}
+            <input value={rows[index] || ''} maxLength={240} onChange={e => editCustom(index, e.target.value)} />
+          </label>)}
+        </details>}
         <button disabled={event.busy || !ready}>{answer ? 'Update answer' : 'Submit answer'}</button>
         {(saved || (answer && unchanged)) && <p role="status" className="saved">Answer saved. You can edit it until the round closes.</p>}
       </form>}
@@ -240,26 +240,29 @@ function RankingEditor({ options, ranking, limit, onChange }) {
     [updated[index], updated[index + offset]] = [updated[index + offset], updated[index]];
     onChange(updated);
   }
-  const remaining = options.filter(option => !ranking.includes(option));
   return <fieldset>
     <legend>Rank {limit === options.length ? 'all ' : 'your top '}{limit} options</legend>
-    <p className="help">Pick your highest priority first, then add the others in order of preference.</p>
-    {ranking.length > 0 && <ol className="rank-list">
+    <p className="help">Tap choices in order of preference. Tap a ranked choice again to remove it.</p>
+    <p className="help" role="status">{ranking.length} / {limit} ranked</p>
+    {options.map(option => {
+      const position = ranking.indexOf(option);
+      const ranked = position >= 0;
+      return <button key={option} type="button" className="rank-option" aria-pressed={ranked}
+        disabled={!ranked && ranking.length >= limit}
+        onClick={() => onChange(ranked ? ranking.filter(item => item !== option) : [...ranking, option])}>
+        <span className="rank-marker" aria-hidden="true">{ranked ? position + 1 : '+'}</span>{option}
+      </button>;
+    })}
+    {ranking.length > 0 && <ol className="rank-list" aria-label="Your ranking">
       {ranking.map((option, index) => <li key={option}>
         <span>{option}</span>
         <div className="actions">
           <button type="button" className="quiet arrow" aria-label={`Move ${option} up`} disabled={!index} onClick={() => move(index, -1)}>↑</button>
           <button type="button" className="quiet arrow" aria-label={`Move ${option} down`} disabled={index === ranking.length - 1} onClick={() => move(index, 1)}>↓</button>
-          <button type="button" className="quiet" aria-label={`Remove ${option} from ranking`} onClick={() => onChange(ranking.filter(item => item !== option))}>Remove</button>
         </div>
       </li>)}
     </ol>}
-    {remaining.length > 0 && ranking.length < limit && <label>Add rank {ranking.length + 1}
-      <select value="" onChange={e => onChange([...ranking, e.target.value])}>
-        <option value="" disabled>Choose an option</option>
-        {remaining.map(option => <option key={option}>{option}</option>)}
-      </select>
-    </label>}
+
   </fieldset>;
 }
 

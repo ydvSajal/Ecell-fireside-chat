@@ -126,5 +126,13 @@ button.vote:hover:not(:disabled){background:#f1f3ff}
 .spotlight .answer-points{padding-left:1.2em}
 
 .custom-rows{padding:.85rem;background:var(--soft);border-radius:8px}
-.custom-rows label{font-size:.9rem}
+.custom-rows summary{cursor:pointer;font-weight:650}
+.custom-rows label{display:block;margin-top:.65rem;font-size:.9rem}
+.custom-rows p{margin-top:.5rem}
 .vote.custom-vote{font-size:clamp(14px,2.65cqw,30px)}
+
+.rank-option{display:flex;align-items:center;gap:.7rem;min-height:44px;padding:.6rem .7rem;text-align:left;background:white;color:var(--ink);border:1px solid var(--line);border-radius:7px;font-weight:550}
+.rank-option[aria-pressed=true],.rank-option:hover:not(:disabled){background:#ecefff;border-color:var(--blue)}
+.rank-marker{display:grid;place-items:center;flex:none;width:1.55rem;height:1.55rem;color:var(--blue);border-radius:50%;background:#ecefff;font-variant-numeric:tabular-nums}
+.rank-option[aria-pressed=true] .rank-marker{color:white;background:var(--blue)}
+.rank-option:disabled{opacity:.62}
