@@ -99,7 +99,7 @@ button.vote:hover:not(:disabled){background:#f1f3ff}
 .unpicked strong{color:var(--ink);font-variant-numeric:tabular-nums}
 .vote-label small,.response-card small{display:block;font-size:.68em;font-weight:500;color:var(--muted);margin-top:.28em}
 .stage-caption{font-size:clamp(11px,1.8cqw,20px);color:var(--muted);overflow-wrap:anywhere}
-.response-board h2{font-size:clamp(14px,2.7cqw,29px);margin-bottom:1.1cqw}
+.response-board h2,.option-section h2{font-size:clamp(14px,2.7cqw,29px);margin-bottom:1.1cqw}
 .stage-replies{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.35cqw}
 .response-card{display:flex;align-items:center;gap:1.25cqw;min-width:0;min-height:8cqw;padding:1.15cqw 1.55cqw;text-align:left;border-radius:2cqw;background:var(--white);color:var(--ink);border:1px solid var(--line);font-size:clamp(14px,2.8cqw,32px);line-height:1.15}
 .response-card:hover:not(:disabled){background:#edf0ff}
@@ -136,3 +136,8 @@ button.vote:hover:not(:disabled){background:#f1f3ff}
 .rank-marker{display:grid;place-items:center;flex:none;width:1.55rem;height:1.55rem;color:var(--blue);border-radius:50%;background:#ecefff;font-variant-numeric:tabular-nums}
 .rank-option[aria-pressed=true] .rank-marker{color:white;background:var(--blue)}
 .rank-option:disabled{opacity:.62}
+
+.option-section{display:grid;gap:1cqw;min-width:0}
+.option-section h2{margin:0}
+.custom-section{border-top:1px solid var(--line);padding-top:1.55cqw}
+.custom-section .vote-label{display:block}

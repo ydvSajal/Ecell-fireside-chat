@@ -290,14 +290,14 @@ function JoinCode() {
   return src && <figure className="join-code"><img src={src} alt="QR code for the guest sign-in page" width="126" height="126" /><figcaption>Scan to join</figcaption></figure>;
 }
 
-function OptionResults({ stats, count, optionCount, multi }) {
+function OptionResults({ stats, count, optionCount, multi, showCaption = true }) {
   const ranked = Boolean(optionCount);
   const selected = stats.filter(item => (ranked ? item.score : item.count) > 0);
   const skipped = stats.filter(item => (ranked ? item.score : item.count) === 0);
   const max = ranked ? count * optionCount : count;
   return <>
-    {ranked && <p className="stage-caption">Ranked results · {optionCount} points for first, 1 for last</p>}
-    {multi && <p className="stage-caption">Share of respondents who selected each option</p>}
+    {showCaption && ranked && <p className="stage-caption">Ranked results · {optionCount} points for first, 1 for last</p>}
+    {showCaption && multi && <p className="stage-caption">Share of respondents who selected each option</p>}
     {selected.length > 0 && <div className="tally" aria-label="Voted options">
       {selected.map(({ label, count: votes, score, first, custom }) => {
         const value = ranked ? score : votes;
@@ -368,6 +368,10 @@ export function Projector() {
   const options = round?.question.options || [];
   const written = round?.answers.filter(answer => format !== 'ranking' && format !== 'multi' && (format !== 'choice' || !options.includes(answer.text))) || [];
   const themes = round?.analysis?.themes || [];
+  const optionCount = format === 'ranking' ? rankCount(round.question) : 0;
+  const stats = round?.stats || [];
+  const presetStats = stats.filter(item => !item.custom);
+  const customStats = stats.filter(item => item.custom);
   const total = data?.guestCount || 0;
   const joined = data?.ready.length ?? 0;
   const answered = data?.answeredCount ?? 0;
@@ -391,10 +395,20 @@ export function Projector() {
           <h1 className={round.question.text.length > 105 ? 'long-question' : undefined}>{round.question.text}</h1>
           <p className="stage-count" role="status" aria-label={`${answered} answered out of ${joined} guests who joined`}>{answered} / {joined}</p>
           {showResults && <div className="results">
-            <ResponseBoard answers={written} themes={themes} onOpen={setSelected} mergeExact={format === 'choice'}
-              title={format === 'choice' ? 'Guest suggestions' : format === 'points' ? 'Action board' : themes.length ? 'Emerging themes and responses' : null} />
-            {options.length > 0 && <OptionResults stats={round.stats || []} count={round.count}
-              optionCount={format === 'ranking' ? rankCount(round.question) : 0} multi={format === 'multi'} />}
+            {options.length > 0 ? <>
+              <section className="option-section" aria-labelledby="preset-options-title">
+                <h2 id="preset-options-title">Preset options</h2>
+                <OptionResults stats={presetStats} count={round.count} optionCount={optionCount} multi={format === 'multi'} />
+              </section>
+              <section className="option-section custom-section" aria-labelledby="custom-answers-title">
+                <h2 id="custom-answers-title">Custom answers</h2>
+                {customStats.length > 0 ? <OptionResults stats={customStats} count={round.count}
+                  optionCount={optionCount} multi={format === 'multi'} showCaption={false} />
+                  : written.length > 0 ? <ResponseBoard answers={written} themes={themes} onOpen={setSelected} mergeExact />
+                    : <p className="stage-caption">No custom answers yet.</p>}
+              </section>
+            </> : <ResponseBoard answers={written} themes={themes} onOpen={setSelected}
+              title={format === 'points' ? 'Action board' : themes.length ? 'Emerging themes and responses' : null} />}
             {round.analysisStatus === 'running' && <p className="stage-caption" role="status">Grouping similar responses…</p>}
             {round.analysis?.takeaway && <p className="stage-caption">{round.analysis.takeaway}</p>}
           </div>}
