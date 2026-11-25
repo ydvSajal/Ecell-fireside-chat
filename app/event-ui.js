@@ -74,7 +74,7 @@ function useEvent(view) {
 }
 
 function Brand() {
-  return <div className="brand"><span className="mark" aria-hidden="true" />E-Cell Action Lab</div>;
+  return <div className="brand"><span className="mark" aria-hidden="true" />Ecell BU</div>;
 }
 
 function Feedback({ event }) {
