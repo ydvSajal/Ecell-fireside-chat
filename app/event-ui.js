@@ -85,7 +85,10 @@ function useEvent(view) {
 }
 
 function Brand() {
-  return <div className="brand"><span className="mark" aria-hidden="true" />Ecell BU</div>;
+  return <div className="brand">
+    <img src="/bennett-university.png" alt="Bennett University, The Times Group" width="2284" height="745" />
+    <span>Corporate Innovation Action Lab</span>
+  </div>;
 }
 
 function Feedback({ event }) {
