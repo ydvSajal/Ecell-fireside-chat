@@ -75,9 +75,11 @@ export async function GET(req) {
         answer: guest && round ? round.answers[guest.id] || '' : '',
       });
     }
+    const joined = guests.filter(guest => guest.joined);
     return json({
       guestCount: guests.length,
-      ready: guests.filter(guest => guest.joined).map(badge),
+      ready: joined.map(badge),
+      answeredCount: round ? joined.filter(guest => Object.hasOwn(round.answers, guest.id)).length : 0,
       waiting: guests.filter(guest => !guest.joined).map(badge),
       round: roundView(round, round?.live || round?.status === 'revealed', state.guests),
     });

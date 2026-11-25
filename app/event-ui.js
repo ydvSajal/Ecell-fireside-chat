@@ -213,6 +213,8 @@ export function Projector() {
   const focused = round?.answers.find(item => item.id === selected) || projected;
   const options = round?.question.options || [];
   const total = data?.guestCount || 0;
+  const joined = data?.ready.length ?? 0;
+  const answered = data?.answeredCount ?? 0;
   const showResults = Boolean(shown && (options.length || round.count));
   return <main className="projection">
     <div className="square">
@@ -231,7 +233,7 @@ export function Projector() {
         : <section className={'stage-round' + (showResults ? '' : ' stage-waiting')}>
           {round.question.lab && <p className="stage-context">{round.question.lab}</p>}
           <h1 className={round.question.text.length > 105 ? 'long-question' : undefined}>{round.question.text}</h1>
-          <p className="stage-count" role="status">{round.count} of {Math.max(total, round.count)} responded</p>
+          <p className="stage-count" role="status" aria-label={`${answered} answered out of ${joined} guests who joined`}>{answered} / {joined}</p>
           {showResults && <div className={'results' + (round.analysis ? ' with-themes' : '')}>
             {options.length ? <PollResults options={options} answers={round.answers} onSpotlight={setSelected} /> : <div className="bubbles">
               {round.answers.map(answer => <button className={'bubble' + (theme && !theme.ids.includes(answer.id) ? ' dim' : '')}
