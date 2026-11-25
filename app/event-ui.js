@@ -396,12 +396,10 @@ export function Projector() {
           <p className="stage-count" role="status" aria-label={`${answered} answered out of ${joined} guests who joined`}>{answered} / {joined}</p>
           {showResults && <div className="results">
             {options.length > 0 ? <>
-              <section className="option-section" aria-labelledby="preset-options-title">
-                <h2 id="preset-options-title">Preset options</h2>
+              <section className="option-section" aria-label="Preset options">
                 <OptionResults stats={presetStats} count={round.count} optionCount={optionCount} multi={format === 'multi'} />
               </section>
-              <section className="option-section custom-section" aria-labelledby="custom-answers-title">
-                <h2 id="custom-answers-title">Custom answers</h2>
+              <section className="option-section custom-section" aria-label="Custom answers">
                 {customStats.length > 0 ? <OptionResults stats={customStats} count={round.count}
                   optionCount={optionCount} multi={format === 'multi'} showCaption={false} />
                   : written.length > 0 ? <ResponseBoard answers={written} themes={themes} onOpen={setSelected} mergeExact />
