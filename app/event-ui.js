@@ -38,15 +38,25 @@ function useEvent(view) {
 
   useEffect(() => {
     let active = true;
+    let polling = false;
     let timer;
     async function poll() {
+      if (polling) return;
+      clearTimeout(timer);
+      polling = true;
       await refresh();
-      if (active) timer = setTimeout(poll, 2000);
+      polling = false;
+      if (active) timer = setTimeout(poll, document.hidden ? 3000 : 1000);
     }
+    const onVisible = () => { if (!document.hidden) poll(); };
     poll();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', poll);
     return () => {
       active = false;
       clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', poll);
       seq.current++;
     };
   }, [refresh]);
@@ -351,11 +361,22 @@ export function Admin() {
   const [question, setQuestion] = useState(null);
   const [guest, setGuest] = useState(null);
   const [chosen, setChosen] = useState('');
-  const [live, setLive] = useState(false);
+  const [live, setLive] = useState(null);
   const [working, setWorking] = useState(false);
   const round = data?.round;
   const guests = data?.guests?.filter(item => item.enabled) || [];
-  const manage = async (action, settings = {}) => send(action, { ...settings, roundId: round?.id });
+  const questions = data?.questions || [];
+  const activeIndex = questions.findIndex(item => item.id === round?.question.id);
+  const currentId = questions[activeIndex]?.id;
+  const selection = questions.find(item => item.id === chosen)?.id || currentId || questions[0]?.id || '';
+  const showLive = live ?? round?.live ?? false;
+  const manage = (action, settings = {}) => send(action, { ...settings, roundId: round?.id ?? null });
+  async function publish(id) {
+    if (await manage('publish', { id, live: showLive })) {
+      setChosen('');
+      setLive(null);
+    }
+  }
   async function runAnalysis() {
     setWorking(true);
     try { await send('analyse', { roundId: round.id }, true); } finally { setWorking(false); }
@@ -383,14 +404,6 @@ export function Admin() {
         {tab === 'round' && <div className="console-grid">
           <section className="panel">
             <h2>{round?.status === 'open' ? 'Question on screen' : 'Publish a question'}</h2>
-            {round?.status !== 'open' && <form onSubmit={e => { e.preventDefault(); manage('publish', { id: chosen || data.questions[0]?.id, live }); }}>
-              <label>Question<select value={chosen || data.questions[0]?.id || ''} onChange={e => setChosen(e.target.value)} required>
-                {!data.questions.length && <option value="">Add a question first</option>}
-                {data.questions.map((item, index) => <option key={item.id} value={item.id}>{index + 1}. {item.text}</option>)}
-              </select></label>
-              <label className="check"><input type="checkbox" checked={live} onChange={e => setLive(e.target.checked)} /> Show responses live during collection</label>
-              <button disabled={busy || !data.questions.length}>Publish question</button>
-            </form>}
             {round && <div className={'current' + (round.status === 'open' ? ' open-round' : '')}>
               <p className="context">{round.status === 'open' ? 'Collecting responses' : 'Round closed'}</p>
               <h3>{round.question.text}</h3>
@@ -405,6 +418,20 @@ export function Admin() {
                     <button className="quiet" disabled={working} onClick={runAnalysis}>{working ? 'Analysing…' : round.analysis ? 'Refresh themes' : 'Generate themes'}</button>}</>}
               </div>
             </div>}
+            <form className={round ? 'question-controls' : undefined} onSubmit={e => { e.preventDefault(); publish(selection); }}>
+              {round && <div className="actions">
+                <button type="button" className="quiet" disabled={busy || activeIndex <= 0}
+                  onClick={() => publish(questions[activeIndex - 1].id)}>Previous question</button>
+                <button type="button" className="quiet" disabled={busy || activeIndex < 0 || activeIndex >= questions.length - 1}
+                  onClick={() => publish(questions[activeIndex + 1].id)}>Next question</button>
+              </div>}
+              <label>{round ? 'Jump to question' : 'Question'}<select value={selection} onChange={e => setChosen(e.target.value)} required>
+                {!questions.length && <option value="">Add a question first</option>}
+                {questions.map((item, index) => <option key={item.id} value={item.id}>{index + 1}. {item.text}</option>)}
+              </select></label>
+              <label className="check"><input type="checkbox" checked={showLive} onChange={e => setLive(e.target.checked)} /> Show responses live when publishing</label>
+              <button disabled={busy || !selection || selection === currentId}>{round ? 'Switch to selected question' : 'Publish question'}</button>
+            </form>
           </section>
           <section className="panel">
             <h2>{round ? 'Guest responses' : 'Guest readiness'}</h2>
@@ -453,15 +480,48 @@ export function Admin() {
               }}>Remove</button></div>
           </div>)}
         </section>}
-        {tab === 'settings' && <GeminiEditor settings={data.gemini} event={event} />}
+        {tab === 'settings' && <div className="console-grid">
+          <SharedGuestPassword event={event} count={guests.length} />
+          <GeminiEditor settings={data.gemini} event={event} />
+        </div>}
         {tab === 'stats' && <section className="panel">
-          <h2>Round results</h2>
+          <div className="section-head">
+            <h2>Round results</h2>
+            <div className="actions">
+              {Boolean(data.archivedCount) && <button className="quiet" disabled={busy} onClick={() => manage('results-restore')}>Restore cleared results</button>}
+              {(round || data.history.length > 0) && <button className="quiet danger" disabled={busy} onClick={() => {
+                if (window.confirm('Clear the results and return the projector to the lobby? You can restore the results afterward.')) manage('results-clear');
+              }}>Clear results</button>}
+            </div>
+          </div>
           {round && <Result text={round.question.text} count={round.count} takeaway={round.analysis?.takeaway} nextStep={round.analysis?.nextStep} />}
           {data.history.map(item => <Result key={item.id} {...item} />)}
           {!round && !data.history.length && <p>Published rounds will appear here with response totals.</p>}
         </section>}
       </>}
   </main>;
+}
+
+function SharedGuestPassword({ event, count }) {
+  const [message, setMessage] = useState('');
+  return <section className="panel">
+    <h2>Shared guest password</h2>
+    <p>Updates the password for everyone currently on the guest list. Signed-in guests will need to sign in again.</p>
+    <form className="editor" onSubmit={async e => {
+      const form = e.currentTarget;
+      const fields = values(e);
+      setMessage('');
+      const result = await event.send('guest-password-all', fields);
+      if (result) {
+        form.reset();
+        setMessage(`Updated the password for ${result.updated} guests.`);
+      }
+    }}>
+      <label>New guest password<input name="password" type="password" maxLength={128} autoComplete="new-password" required /></label>
+      <button disabled={event.busy || !count}>Update all guest passwords</button>
+    </form>
+    {message && <p className="saved" role="status">{message}</p>}
+  </section>;
 }
 
 function Result({ text, count, takeaway, nextStep }) {

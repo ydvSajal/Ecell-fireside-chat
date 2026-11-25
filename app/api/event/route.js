@@ -59,7 +59,8 @@ export async function GET(req) {
       if (!sessionFor(state, req, 'admin')) return json({ authenticated: false });
       return json({ authenticated: true, questions: state.questions, guests: state.guests.map(viewGuest), round: roundView(round, true, state.guests),
         gemini: geminiSettings(state),
-        history: state.rounds.filter(item => item.id !== state.current).map(item => ({
+        archivedCount: state.rounds.filter(item => item.archived).length,
+        history: state.rounds.filter(item => !item.archived && item.id !== state.current).map(item => ({
           id: item.id, text: item.question.text, count: Object.keys(item.answers).length,
           takeaway: item.analysis?.takeaway, nextStep: item.analysis?.nextStep,
         })).reverse(),
@@ -122,6 +123,12 @@ function questionFields(body) {
   return { text, lab, options };
 }
 
+function revokeGuestSessions(state, guestIds) {
+  for (const [key, session] of Object.entries(state.sessions)) {
+    if (guestIds.has(session.guestId)) delete state.sessions[key];
+  }
+}
+
 function adminChange(state, body) {
   const { action, id } = body;
   const round = active(state);
@@ -136,6 +143,14 @@ function adminChange(state, body) {
     settings.gemini = { model, encryptedKey: key ? saveGeminiKey(key) : previous.encryptedKey };
   } else if (action === 'gemini-remove-key') {
     if (state.settings?.gemini) delete state.settings.gemini.encryptedKey;
+  } else if (action === 'guest-password-all') {
+    const password = typeof body.password === 'string' ? body.password : '';
+    check(password.trim() && password.length <= 128, 'Enter a guest password of up to 128 characters.');
+    const guests = state.guests.filter(guest => guest.enabled);
+    check(guests.length, 'Add a guest first.');
+    for (const guest of guests) guest.password = passwordHash(password);
+    revokeGuestSessions(state, new Set(guests.map(guest => guest.id)));
+    return { ok: true, updated: guests.length };
   } else if (action === 'guest-save') {
     const guest = state.guests.find(item => item.id === id && item.enabled);
     check(!id || guest, 'Guest not found.', 404);
@@ -147,9 +162,7 @@ function adminChange(state, body) {
       guest.name = name;
       if (password) {
         guest.password = passwordHash(password);
-        for (const [key, session] of Object.entries(state.sessions)) {
-          if (session.guestId === guest.id) delete state.sessions[key];
-        }
+        revokeGuestSessions(state, new Set([guest.id]));
       }
     } else {
       state.guests.push({ id: randomUUID(), name, password: passwordHash(password), enabled: true, joined: false, avatar: state.guests.length % 10 });
@@ -158,9 +171,7 @@ function adminChange(state, body) {
     const guest = state.guests.find(item => item.id === id && item.enabled);
     check(guest, 'Guest not found.', 404);
     guest.enabled = false;
-    for (const [key, session] of Object.entries(state.sessions)) {
-      if (session.guestId === id) delete state.sessions[key];
-    }
+    revokeGuestSessions(state, new Set([id]));
   } else if (action === 'question-save') {
     const fields = questionFields(body);
     const question = state.questions.find(item => item.id === id);
@@ -177,14 +188,25 @@ function adminChange(state, body) {
       }
     }
   } else if (action === 'publish') {
-    check(!round || round.status !== 'open', 'Close the current round before publishing another.', 409);
+    check(body.roundId === undefined ? round?.status !== 'open' : state.current === body.roundId,
+      'The active round has changed. Try again with the current question.', 409);
     const question = state.questions.find(item => item.id === id);
     check(question, 'Question not found.', 404);
+    if (round?.status === 'open') round.status = 'revealed';
     state.current = randomUUID();
     state.rounds.push({
       id: state.current, question: { ...question }, live: body.live === true, status: 'open', answers: {}, avatars: {},
       analysis: null, spotlight: null,
     });
+  } else if (action === 'results-clear') {
+    check(state.current === (body.roundId ?? null), 'The active round has changed. Check it before clearing results.', 409);
+    for (const item of state.rounds) {
+      item.archived = true;
+      if (item.status === 'open') item.status = 'revealed';
+    }
+    state.current = null;
+  } else if (action === 'results-restore') {
+    for (const item of state.rounds) delete item.archived;
   } else if (action === 'reveal' || action === 'lobby' || action === 'spotlight') {
     check(round && round.id === body.roundId, 'The active round has changed.', 409);
     if (action === 'reveal') {
