@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { answerReasons, customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount, REASON_LIMIT, REASON_MAX_LENGTH } from '../lib/responses';
 
 const eventTitle = 'Corporate Innovation Action Lab';
+const insightsTitle = 'Corporate Innovation Insights';
 const avatarColors = [
   ['#d8e4ff', '#3659ab'], ['#f8dfbd', '#9b4c21'], ['#d7ebda', '#276447'], ['#f3dbe7', '#923d69'],
   ['#e4ddf8', '#644aa2'], ['#f5e8ac', '#78601c'], ['#d4ebec', '#29646c'], ['#f6d8cb', '#a94c38'],
@@ -91,6 +92,23 @@ function Brand() {
   </div>;
 }
 
+function RoundtableBanner() {
+  return <header className="roundtable-banner">
+    <div className="roundtable-banner-brand">
+      <img className="roundtable-banner-logo" src="/bennett-university.png" width="2284" height="745"
+        alt="Bennett University, The Times Group" />
+      <div className="roundtable-banner-title">
+        <p>Centre for Corporate Innovation</p>
+        <p>High-Powered Industry–Academia Roundtable</p>
+      </div>
+      <div className="roundtable-banner-accreditation">
+        <img src="/roundtable-banner.png" width="1193" height="285" alt="NAAC Grade A+ Accredited University" />
+      </div>
+    </div>
+    <p className="roundtable-banner-topic"><strong>Seeding Corporate Innovation in India:</strong> Challenges &amp; Opportunities</p>
+  </header>;
+}
+
 function Feedback({ event }) {
   return <>{event.connection && <p className="notice" role="status">{event.connection}</p>}
     {event.error && <p className="notice error" role="alert">{event.error}</p>}</>;
@@ -104,25 +122,28 @@ function values(event) {
 export function Guest() {
   const event = useEvent('guest');
   const { data, busy, send } = event;
-  return <main className="shell guest-shell">
-    <header className="app-header"><Brand />
-      {data?.guest && <button type="button" className="quiet" onClick={() => send('guest-logout')}>Sign out</button>}
-    </header>
-    <Feedback event={event} />
-    {!data ? <p role="status">Connecting to the Action Lab…</p> : data.guest
-      ? <GuestRound key={data.guest.id + '/' + (data.round?.id || 'lobby')} data={data} event={event} />
-      : <section className="entry">
-        <h1>Join the Action Lab</h1>
-        <p>Choose your name and enter the password from your moderator.</p>
-        <form onSubmit={e => send('guest-login', values(e))}>
-          <label>Your name<select name="id" defaultValue="" required disabled={!data.roster.length}>
-            <option value="" disabled>{data.roster.length ? 'Select your name' : 'Waiting for the guest list'}</option>
-            {data.roster.map(guest => <option key={guest.id} value={guest.id}>{guest.name}</option>)}
-          </select></label>
-          <label>Password<input name="password" type="password" maxLength={128} autoComplete="current-password" required /></label>
-          <button disabled={busy || !data.roster.length}>Join the session</button>
-        </form>
-      </section>}
+  return <main className="guest-page">
+    <RoundtableBanner />
+    <div className="shell guest-shell">
+      {data?.guest && <div className="guest-actions">
+        <button type="button" className="quiet" onClick={() => send('guest-logout')}>Sign out</button>
+      </div>}
+      <Feedback event={event} />
+      {!data ? <p role="status">Connecting to the Action Lab…</p> : data.guest
+        ? <GuestRound key={data.guest.id + '/' + (data.round?.id || 'lobby')} data={data} event={event} />
+        : <section className="entry">
+          <h1>Join the Action Lab</h1>
+          <p>Choose your name and enter the password from your moderator.</p>
+          <form onSubmit={e => send('guest-login', values(e))}>
+            <label>Your name<select name="id" defaultValue="" required disabled={!data.roster.length}>
+              <option value="" disabled>{data.roster.length ? 'Select your name' : 'Waiting for the guest list'}</option>
+              {data.roster.map(guest => <option key={guest.id} value={guest.id}>{guest.name}</option>)}
+            </select></label>
+            <label>Password<input name="password" type="password" maxLength={128} autoComplete="current-password" required /></label>
+            <button disabled={busy || !data.roster.length}>Join the session</button>
+          </form>
+        </section>}
+    </div>
   </main>;
 }
 
@@ -338,7 +359,6 @@ function OptionResults({ stats, count, optionCount, multi, showCaption = true })
   const skipped = stats.filter(item => (ranked ? item.score : item.count) === 0);
   const max = ranked ? count * optionCount : count;
   return <>
-    {showCaption && ranked && <p className="stage-caption">Ranked results · {optionCount} points for first, 1 for last</p>}
     {showCaption && multi && <p className="stage-caption">Share of respondents who selected each option</p>}
     {selected.length > 0 && <div className="tally" aria-label="Voted options">
       {selected.map(({ label, count: votes, score, first, custom }) => {
@@ -437,20 +457,7 @@ export function Projector() {
     insightsButton.current?.focus();
   }
   return <main className="projection">
-    <header className="projector-banner">
-      <div className="projector-banner-brand">
-        <img className="projector-banner-logo" src="/bennett-university.png" width="2284" height="745"
-          alt="Bennett University, The Times Group" />
-        <div className="projector-banner-title">
-          <p>Centre for Corporate Innovation</p>
-          <p>High-Powered Industry–Academia Roundtable</p>
-        </div>
-        <div className="projector-banner-accreditation">
-          <img src="/roundtable-banner.png" width="1193" height="285" alt="NAAC Grade A+ Accredited University" />
-        </div>
-      </div>
-      <p className="projector-banner-topic"><strong>Seeding Corporate Innovation in India:</strong> Challenges &amp; Opportunities</p>
-    </header>
+    <RoundtableBanner />
     <div className="stage-screen">
       {connection && <p className="stage-notice" role="status">{connection}</p>}
       {!data ? <p className="stage-loading" role="status">Connecting to the Action Lab…</p> : !round
@@ -465,14 +472,16 @@ export function Projector() {
           <JoinCode />
         </section>
         : <section className={'stage-round' + (showResults ? '' : ' stage-waiting')}>
-          {round.question.lab && <p className="stage-context">{round.question.lab}</p>}
-          <h1 className={format === 'reasons' || round.question.text.length > 105 ? 'long-question' : undefined}>{round.question.text}</h1>
+          <div className="stage-question">
+            {round.question.lab && <p className="stage-context">{round.question.lab}</p>}
+            <h1 className={format === 'reasons' || round.question.text.length > 105 ? 'long-question' : undefined}>{round.question.text}</h1>
+          </div>
           <div className="stage-tools">
             <p className="stage-count" role="status" aria-label={`${answered} answered out of ${joined} guests who joined`}>{answered} / {joined}</p>
             {showResults && <button type="button" className="insights-toggle" ref={insightsButton}
-              aria-expanded={insightsOpen} aria-controls={insightsOpen ? 'smart-insights' : undefined}
+              aria-expanded={insightsOpen} aria-controls={insightsOpen ? 'corporate-innovation-insights' : undefined}
               onClick={() => insightsOpen ? closeInsights() : setInsightsRound(round.id)}>
-              Smart Insights <span aria-hidden="true">{insightsOpen ? '−' : '+'}</span>
+              {insightsTitle} <span aria-hidden="true">{insightsOpen ? '−' : '+'}</span>
             </button>}
           </div>
           {showResults && <div className={insightsOpen ? 'projection-results has-insights' : 'projection-results'}>
@@ -545,10 +554,10 @@ function AnalysisContent({ analysis }) {
 function ProjectorAnalysis({ round: { analysis, analysisStatus, status, count }, onClose }) {
   const closeButton = useRef(null);
   useEffect(() => { closeButton.current?.focus(); }, []);
-  return <aside className="projector-analysis analysis-content" id="smart-insights" aria-labelledby="smart-insights-title"
+  return <aside className="projector-analysis analysis-content" id="corporate-innovation-insights" aria-labelledby="corporate-innovation-insights-title"
     onKeyDown={event => { if (event.key === 'Escape') onClose(); }}>
     <div className="insights-heading">
-      <h2 id="smart-insights-title">Smart Insights</h2>
+      <h2 id="corporate-innovation-insights-title">{insightsTitle}</h2>
       <button type="button" className="quiet" ref={closeButton} onClick={onClose}>Close</button>
     </div>
     <div className="insights-body" tabIndex={0} aria-label="Insight details">
