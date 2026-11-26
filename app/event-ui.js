@@ -17,7 +17,7 @@ function Avatar({ index = 0, initials = '–', waiting = false }) {
     style={{ '--avatar-bg': background, '--avatar-ink': color }}>{initials}</span>;
 }
 
-function useEvent(view) {
+function useEvent(view, interval = 1000) {
   const [data, setData] = useState(null);
   const [connection, setConnection] = useState('');
   const [error, setError] = useState('');
@@ -48,7 +48,7 @@ function useEvent(view) {
       polling = true;
       await refresh();
       polling = false;
-      if (active) timer = setTimeout(poll, document.hidden ? 3000 : 1000);
+      if (active) timer = setTimeout(poll, document.hidden ? Math.max(3000, interval) : interval);
     }
     const onVisible = () => { if (!document.hidden) poll(); };
     poll();
@@ -61,7 +61,7 @@ function useEvent(view) {
       window.removeEventListener('online', poll);
       seq.current++;
     };
-  }, [refresh]);
+  }, [refresh, interval]);
 
   const send = useCallback(async (action, values = {}, background = false) => {
     if (!background) setBusy(true);
@@ -466,7 +466,7 @@ export function Projector() {
           <p className="stage-sub">Scan to join the Corporate Innovation Action Lab.</p>
           <div className="avatar-board">
             {data.ready.map(guest => <Avatar key={guest.id} index={guest.avatar} initials={guest.initials} />)}
-            {data.waiting?.map(guest => <Avatar key={guest.id} index={guest.avatar} initials={guest.initials} waiting />)}
+            {data.waiting?.map(guest => <Avatar key={guest.id} initials="" waiting />)}
           </div>
           <p className="ready" aria-live="polite">{total ? `${data.ready.length} of ${total} guests ready` : 'Waiting for guests'}</p>
           <JoinCode />
@@ -694,6 +694,16 @@ export function Admin() {
       setLive(null);
     }
   }
+  async function resetSession() {
+    const confirmed = window.confirm(`End Session ${data.sessionNumber} and start Session ${data.sessionNumber + 1}? This saves the current session and signs out all guests and moderators.`);
+    if (confirmed && await manage('session-reset', { sessionNumber: data.sessionNumber })) {
+      setTab('round');
+      setChosen('');
+      setLive(null);
+      setQuestion(null);
+      setGuest(null);
+    }
+  }
   return <main className="shell">
     <header className="app-header"><Brand />{data?.authenticated && <div className="actions">
       <a href="/projector" target="_blank" rel="noreferrer">Open projector ↗</a>
@@ -711,9 +721,13 @@ export function Admin() {
       : <>
         <h1 className="console-title">Moderator console</h1>
         <nav className="admin-tabs" aria-label="Moderator sections">
-          {[['round', 'Live session'], ['questions', `Questions (${data.questions.length})`], ['guests', `Guests (${guests.length})`], ['stats', 'Results'], ['settings', 'Settings']].map(([key, name]) =>
+          {[['round', 'Live session'], ['questions', `Questions (${data.questions.length})`], ['guests', `Guests (${guests.length})`], ['stats', 'Results'], ['sessions', 'Sessions'], ['settings', 'Settings']].map(([key, name]) =>
             <button key={key} type="button" aria-current={tab === key ? 'page' : undefined} className="quiet" onClick={() => setTab(key)}>{name}</button>)}
         </nav>
+        {tab === 'round' && <div className="session-toolbar">
+          <strong>Session {data.sessionNumber}</strong>
+          <button type="button" className="quiet danger" disabled={busy} onClick={resetSession}>Reset session</button>
+        </div>}
         {tab === 'round' && <div className="console-grid">
           <section className="panel">
             <h2>{round?.status === 'open' ? 'Question on screen' : 'Publish a question'}</h2>
@@ -782,6 +796,7 @@ export function Admin() {
           <SharedGuestPassword event={event} count={guests.length} />
           <GeminiEditor settings={data.gemini} event={event} />
         </div>}
+        {tab === 'sessions' && <SessionHistory sessions={data.eventSessions} />}
         {tab === 'stats' && <section className="panel">
           <div className="section-head">
             <h2>Round results</h2>
@@ -800,13 +815,63 @@ export function Admin() {
   </main>;
 }
 
+function SessionHistory({ sessions }) {
+  const [selection, setSelection] = useState('');
+  const number = selection || sessions[0]?.number;
+  return <section className="panel">
+    <div className="section-head session-history-heading">
+      <h2>Session history</h2>
+      {number && <a href={`/api/event?view=session-export&number=${number}`} download>Export Excel</a>}
+    </div>
+    <label htmlFor="event-session-picker">Session</label>
+    <select id="event-session-picker" value={number ?? ''} onChange={event => setSelection(Number(event.target.value))}>
+      {sessions.map(session => <option key={session.number} value={session.number}>
+        Session {session.number} · {session.endedAt ? 'Ended' : 'Current'} · {session.responses} responses
+      </option>)}
+    </select>
+    {number && <SessionDetails key={number} number={number} />}
+  </section>;
+}
+
+function SessionDetails({ number }) {
+  const event = useEvent(`session&number=${number}`, 3000);
+  const { data } = event;
+  if (!data) return <div className="session-detail"><Feedback event={event} /><p role="status">Loading session…</p></div>;
+  const { session, rounds } = data;
+  const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  return <div className="session-detail">
+    <Feedback event={event} />
+    <p className="context">
+      {session.startedAt && <>Started {date.format(new Date(session.startedAt))} · </>}
+      {session.endedAt ? <>Ended {date.format(new Date(session.endedAt))}</> : 'Current session'}
+    </p>
+    {!rounds.length && <p>No rounds have been published in this session.</p>}
+    {rounds.map((round, index) => <details className="session-round" key={round.id}>
+      <summary>{round.question.lab || `Round ${index + 1}`} · {round.question.text} · {round.count} {round.count === 1 ? 'response' : 'responses'}</summary>
+      <div className="session-round-body">
+        {round.analysis && <section className="analysis-content">
+          <h3>{insightsTitle}</h3>
+          <AnalysisContent analysis={round.analysis} />
+        </section>}
+        {round.analysisStatus === 'running' && <p className="help" role="status">Analysis in progress.</p>}
+        {round.analysisStatus === 'failed' && <p className="help">Analysis was unavailable for this round.</p>}
+        {round.answers.map(answer => <div className="session-response" key={answer.id}>
+          <strong>{answer.name}</strong>
+          <div className="row-answer"><AnswerContent answer={answer} /></div>
+        </div>)}
+        {!round.answers.length && <p className="help">No responses in this round.</p>}
+      </div>
+    </details>)}
+  </div>;
+}
+
 function ResponseFeed({ round, guests, busy, manage }) {
   const [filter, setFilter] = useState('');
   const answers = round?.answers || [];
   const stats = round?.stats || [];
   const format = round ? questionFormat(round.question) : null;
   const names = new Map(guests.map(guest => [guest.id, guest.name]));
-  const getName = id => names.get(id) || 'Former guest';
+  const getName = answer => answer.name || names.get(answer.id) || 'Former guest';
   const filtered = filter ? answers.filter(answer => answer.id === filter) : answers;
   const selectedIndex = answers.findIndex(answer => answer.id === round?.spotlight);
   const canSpotlight = round && (round.live || round.status === 'revealed');
@@ -837,7 +902,7 @@ function ResponseFeed({ round, guests, busy, manage }) {
       {answers.length > 0 ? <>
         <label>Filter by guest<select value={filter} onChange={e => setFilter(e.target.value)}>
           <option value="">All guests</option>
-          {answers.map(answer => <option key={answer.id} value={answer.id}>{getName(answer.id)}</option>)}
+          {answers.map(answer => <option key={answer.id} value={answer.id}>{getName(answer)}</option>)}
         </select></label>
         <div className="actions slideshow-controls">
           <button className="quiet" disabled={busy || !canSpotlight || selectedIndex < 1}
@@ -850,7 +915,7 @@ function ResponseFeed({ round, guests, busy, manage }) {
         {!canSpotlight && <p className="help">Reveal this round or publish with live responses to show answers on the projector.</p>}
         {filtered.map(answer => <div className="list-row" key={answer.id}>
           <div className="row-copy">
-            <div className="person"><Avatar index={answer.avatar} initials={answer.initials} />{getName(answer.id)}</div>
+            <div className="person"><Avatar index={answer.avatar} initials={answer.initials} />{getName(answer)}</div>
             <div className="row-answer"><AnswerContent answer={answer} /></div>
           </div>
           <button className="quiet" disabled={busy || !canSpotlight} onClick={() => showAnswer(round.spotlight === answer.id ? null : answer.id)}>

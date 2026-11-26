@@ -5,6 +5,7 @@ import { cookieFor, passwordHash, sameSecret, sessionFor, signIn, tokenKey, vali
 import { analyse, testGemini } from '../../../lib/analysis';
 import { customSlots, isInitiativeQuestion, optionKey, questionFormat, rankCount, REASON_LIMIT, REASON_MAX_LENGTH, responseStats } from '../../../lib/responses';
 import { geminiCredentials, geminiSettings, saveGeminiKey } from '../../../lib/settings';
+import { currentEventSession, eventSessionSummaries } from '../../../lib/event-sessions';
 
 export const runtime = 'nodejs';
 export const maxDuration = 90;
@@ -41,15 +42,19 @@ function initiativeFor(round, id) {
   return { initiative: initiative || round.answers[id] || '', steps };
 }
 
-function roundView(round, show, guests = []) {
+function roundView(round, show, guests = [], includeNames = false) {
   if (!round) return null;
   const entries = Object.entries(round.answers);
-  const initials = show ? new Map(guests.map(guest => [guest.id, initialsFor(guest.name)])) : null;
-  const answers = show ? entries.map(([id, text]) => ({
-    id, text, avatar: round.avatars[id] ?? 0, initials: initials.get(id),
-    ranking: round.rankings?.[id], selections: round.selections?.[id], points: round.points?.[id],
-    ...initiativeFor(round, id),
-  })) : [];
+  const names = show ? new Map(guests.map(guest => [guest.id, guest.name])) : null;
+  const answers = show ? entries.map(([id, text]) => {
+    const name = round.guestNames?.[id] || names.get(id);
+    return {
+      id, text, avatar: round.avatars[id] ?? 0, initials: name && initialsFor(name),
+      ...(includeNames && { name: name || 'Former guest' }),
+      ranking: round.rankings?.[id], selections: round.selections?.[id], points: round.points?.[id],
+      ...initiativeFor(round, id),
+    };
+  }) : [];
   return {
     id: round.id, question: round.question, status: round.status, live: round.live, count: entries.length,
     answers, stats: show ? responseStats(round.question, answers) : [],
@@ -72,12 +77,31 @@ export async function GET(req) {
     const round = active(state);
     const mode = req.nextUrl.searchParams.get('view');
     const guests = state.guests.filter(guest => guest.enabled);
+    if (mode === 'session' || mode === 'session-export') {
+      check(sessionFor(state, req, 'admin'), 'Sign in as admin.', 401);
+      const number = Number(req.nextUrl.searchParams.get('number'));
+      const session = state.eventSessions.find(item => item.number === number);
+      check(session, 'Session not found.', 404);
+      const rounds = state.rounds.filter(item => item.sessionNumber === number).map(item => ({
+        ...roundView(item, true, state.guests, true), openedAt: item.openedAt, closedAt: item.closedAt,
+      }));
+      if (mode === 'session') return json({ session, rounds });
+      const { exportSession } = await import('../../../lib/session-export');
+      return new Response(await exportSession(rounds), { headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="action-lab-session-${number}.xlsx"`,
+        'Cache-Control': 'private, no-store',
+      } });
+    }
     if (mode === 'admin') {
       if (!sessionFor(state, req, 'admin')) return json({ authenticated: false });
-      return json({ authenticated: true, questions: state.questions, guests: state.guests.map(viewGuest), round: roundView(round, true, state.guests),
+      const sessionNumber = currentEventSession(state).number;
+      const rounds = state.rounds.filter(item => item.sessionNumber === sessionNumber);
+      return json({ authenticated: true, questions: state.questions, guests: state.guests.map(viewGuest), round: roundView(round, true, state.guests, true),
+        sessionNumber, eventSessions: eventSessionSummaries(state),
         gemini: geminiSettings(state),
-        archivedCount: state.rounds.filter(item => item.archived).length,
-        history: state.rounds.filter(item => !item.archived && item.id !== state.current).map(item => ({
+        archivedCount: rounds.filter(item => item.archived).length,
+        history: rounds.filter(item => !item.archived && item.id !== state.current).map(item => ({
           id: item.id, text: item.question.text, count: Object.keys(item.answers).length,
           analysis: item.analysis, analysisStatus: analysisStatus(item), canAnalyse: canAnalyse(item),
         })).reverse(),
@@ -102,7 +126,7 @@ export async function GET(req) {
       guestCount: guests.length,
       ready: joined.map(badge),
       answeredCount: round ? joined.filter(guest => Object.hasOwn(round.answers, guest.id)).length : 0,
-      waiting: guests.filter(guest => !guest.joined).map(badge),
+      waiting: guests.filter(guest => !guest.joined).map(({ id }) => ({ id })),
       round: roundView(round, round?.live || round?.status === 'revealed', state.guests),
     });
   } catch (error) {
@@ -150,6 +174,7 @@ function queueAnalysis(round) {
 
 function closeRound(state, round) {
   round.status = 'revealed';
+  round.closedAt = new Date().toISOString();
   return canAnalyse(round) && geminiSettings(state).keySource !== 'none' ? queueAnalysis(round) : null;
 }
 
@@ -277,21 +302,41 @@ function adminChange(state, body) {
     const question = state.questions.find(item => item.id === id);
     check(question, 'Question not found.', 404);
     const job = round?.status === 'open' ? closeRound(state, round) : null;
+    const session = currentEventSession(state);
+    const openedAt = new Date().toISOString();
+    session.startedAt ??= openedAt;
     state.current = randomUUID();
     state.rounds.push({
       id: state.current, question: { ...question }, live: body.live === true, status: 'open', answers: {}, avatars: {},
-      analysis: null, spotlight: null,
+      analysis: null, spotlight: null, sessionNumber: session.number, openedAt,
     });
     return { ok: true, job };
+  } else if (action === 'session-reset') {
+    const session = currentEventSession(state);
+    check(body.sessionNumber === session.number && body.roundId === state.current, 'The session has changed. Review it before resetting.', 409);
+    const job = round?.status === 'open' ? closeRound(state, round) : null;
+    const now = new Date().toISOString();
+    session.endedAt = now;
+    state.eventSessions.push({ number: session.number + 1, startedAt: now, endedAt: null });
+    state.current = null;
+    state.sessions = {};
+    for (const guest of state.guests) guest.joined = false;
+    return { ok: true, logout: true, job };
   } else if (action === 'results-clear') {
     check(state.current === (body.roundId ?? null), 'The active round has changed. Check it before clearing results.', 409);
     for (const item of state.rounds) {
+      if (item.sessionNumber !== currentEventSession(state).number) continue;
       item.archived = true;
-      if (item.status === 'open') item.status = 'revealed';
+      if (item.status === 'open') {
+        item.status = 'revealed';
+        item.closedAt = new Date().toISOString();
+      }
     }
     state.current = null;
   } else if (action === 'results-restore') {
-    for (const item of state.rounds) delete item.archived;
+    for (const item of state.rounds) {
+      if (item.sessionNumber === currentEventSession(state).number) delete item.archived;
+    }
   } else if (action === 'reveal' || action === 'lobby' || action === 'spotlight') {
     check(round && round.id === body.roundId, 'The active round has changed.', 409);
     if (action === 'reveal') {
@@ -349,7 +394,7 @@ export async function POST(req) {
     if (body.action === 'analyse') {
       const job = await changeState(state => {
         check(sessionFor(state, req, 'admin'), 'Sign in as admin.', 401);
-        const round = state.rounds.find(item => item.id === body.roundId && !item.archived);
+        const round = state.rounds.find(item => item.id === body.roundId);
         check(round?.status === 'revealed', 'Close and reveal the round first.', 409);
         check(canAnalyse(round), 'At least one response is needed.');
         check(geminiSettings(state).keySource !== 'none', 'Add a Gemini API key in Settings first.');
@@ -408,6 +453,7 @@ export async function POST(req) {
         }
         round.answers[guest.id] = text;
         round.avatars[guest.id] = guest.avatar;
+        (round.guestNames ??= {})[guest.id] = guest.name;
         return { ok: true };
       }
       return adminChange(state, body);

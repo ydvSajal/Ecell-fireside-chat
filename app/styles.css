@@ -52,6 +52,16 @@ input[type=radio],input[type=checkbox]{accent-color:var(--blue);flex:none;width:
 .panel{background:#ffffffae;border:1px solid var(--line);border-radius:10px;padding:clamp(.9rem,3vw,1.35rem);min-width:0}
 .panel h2{font-size:1.65rem;margin-bottom:.75rem}
 .section-head{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;margin-bottom:.65rem}
+.session-toolbar{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:1rem}
+.session-history-heading{flex-wrap:wrap;margin-bottom:1rem}
+.session-history-heading a{font-weight:650}
+.session-detail{display:grid;gap:.65rem;margin-top:1rem}
+.session-round{border:1px solid var(--line);border-radius:8px;background:var(--white);overflow-wrap:anywhere}
+.session-round summary{cursor:pointer;font-weight:650;padding:.75rem}
+.session-round-body{padding:0 .75rem .75rem}
+.session-round-body>section{padding:.75rem;background:var(--soft);border-radius:6px;margin-bottom:.65rem}
+.session-round-body>section>h3{margin:0 0 .45rem}
+.session-response{padding:.65rem 0;border-top:1px solid var(--line)}
 .panel .editor{margin-bottom:1rem}
 .current{border-top:1px solid var(--line);margin-top:1.1rem;padding-top:1rem;overflow-wrap:anywhere}
 .current.open-round{border:0;margin:0;padding:0}
