@@ -74,12 +74,48 @@ input[type=radio],input[type=checkbox]{accent-color:var(--blue);flex:none;width:
   --stage-gap:clamp(8px,1.25cqmin,22px);
   --stage-gutter:clamp(12px,3.2cqw,72px);
 }
-.projector-banner{
-  background:
-    linear-gradient(to bottom,#e4f6fd 79.1%,transparent 79.1%),
-    linear-gradient(to right,#d3192e 50%,#04549a 50%);
+.projector-banner{background:#e4f6fd;color:#103b66;text-align:center}
+.projector-banner-brand{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,4.8fr) minmax(0,1fr);
+  align-items:center;
+  gap:clamp(6px,1.5cqw,28px);
+  padding:clamp(7px,1.3cqmin,21px) var(--stage-gutter);
 }
-.projector-banner img{display:block;width:min(100%,94dvh);height:auto;margin-inline:auto}
+.projector-banner-logo{display:block;width:min(100%,clamp(100px,18cqmin,225px));height:auto}
+.projector-banner-title p:first-child{font:700 clamp(16px,min(4.15cqmin,3.65cqw),68px)/1.05 var(--serif);text-wrap:balance}
+.projector-banner-title p+p{margin-top:.3em;font-size:clamp(9px,1.44cqmin,25px);font-weight:700;text-transform:uppercase;line-height:1.22;text-wrap:balance}
+.projector-banner-accreditation{
+  justify-self:end;
+  width:min(100%,clamp(78px,14cqmin,175px));
+  aspect-ratio:154/66;
+  position:relative;
+  overflow:hidden;
+}
+.projector-banner-accreditation img{
+  display:block;
+  position:absolute;
+  width:774.68%;
+  max-width:none;
+  height:auto;
+  top:-54.55%;
+  left:-417.53%;
+}
+.projector-banner-topic{
+  background:linear-gradient(105deg,#cc1b30,#074f92);
+  color:#fff;
+  padding:.35em var(--stage-gutter);
+  font-size:clamp(10px,1.8cqmin,30px);
+  font-weight:800;
+  line-height:1.2;
+  text-transform:uppercase;
+  text-wrap:balance;
+}
+.projector-banner-topic strong{color:#ffdc51}
+@media(max-width:480px){
+  .projector-banner-brand{padding-block:5px}
+  .projector-banner-topic{padding-block:.25em}
+}
 .stage-screen{position:relative;min-width:0;min-height:0;display:grid;grid-template:minmax(0,1fr)/minmax(0,1fr)}
 .stage-notice{position:absolute;top:.4rem;left:var(--stage-gutter);color:#7d2924;z-index:3;background:var(--paper);padding:.2em .4em;font-size:clamp(12px,2cqmin,21px)}
 .stage-loading{align-self:center;text-align:center}

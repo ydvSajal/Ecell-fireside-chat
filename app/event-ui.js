@@ -438,8 +438,18 @@ export function Projector() {
   }
   return <main className="projection">
     <header className="projector-banner">
-      <img src="/roundtable-banner.png" width="1193" height="285"
-        alt="Bennett University, NAAC Grade A+. Centre for Corporate Innovation presents the High-Powered Industry–Academia Roundtable. Seeding Corporate Innovation in India: Challenges & Opportunities." />
+      <div className="projector-banner-brand">
+        <img className="projector-banner-logo" src="/bennett-university.png" width="2284" height="745"
+          alt="Bennett University, The Times Group" />
+        <div className="projector-banner-title">
+          <p>Centre for Corporate Innovation</p>
+          <p>High-Powered Industry–Academia Roundtable</p>
+        </div>
+        <div className="projector-banner-accreditation">
+          <img src="/roundtable-banner.png" width="1193" height="285" alt="NAAC Grade A+ Accredited University" />
+        </div>
+      </div>
+      <p className="projector-banner-topic"><strong>Seeding Corporate Innovation in India:</strong> Challenges &amp; Opportunities</p>
     </header>
     <div className="stage-screen">
       {connection && <p className="stage-notice" role="status">{connection}</p>}
