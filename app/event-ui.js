@@ -413,6 +413,8 @@ export function Projector() {
   const { data, connection } = useEvent('projector');
   const round = data?.round;
   const [selected, setSelected] = useState([]);
+  const [insightsRound, setInsightsRound] = useState(null);
+  const insightsButton = useRef(null);
   useEffect(() => { setSelected([]); }, [round?.id, round?.spotlight]);
   const shown = round && (round.live || round.status === 'revealed');
   const projected = round?.answers.find(item => item.id === round.spotlight);
@@ -429,8 +431,17 @@ export function Projector() {
   const joined = data?.ready.length ?? 0;
   const answered = data?.answeredCount ?? 0;
   const showResults = Boolean(shown && (options.length || round.count));
+  const insightsOpen = showResults && insightsRound === round.id;
+  function closeInsights() {
+    setInsightsRound(null);
+    insightsButton.current?.focus();
+  }
   return <main className="projection">
-    <div className="square">
+    <header className="projector-banner">
+      <img src="/roundtable-banner.png" width="1193" height="285"
+        alt="Bennett University, NAAC Grade A+. Centre for Corporate Innovation presents the High-Powered Industry–Academia Roundtable. Seeding Corporate Innovation in India: Challenges & Opportunities." />
+    </header>
+    <div className="stage-screen">
       {connection && <p className="stage-notice" role="status">{connection}</p>}
       {!data ? <p className="stage-loading" role="status">Connecting to the Action Lab…</p> : !round
         ? <section className="lobby">
@@ -446,9 +457,16 @@ export function Projector() {
         : <section className={'stage-round' + (showResults ? '' : ' stage-waiting')}>
           {round.question.lab && <p className="stage-context">{round.question.lab}</p>}
           <h1 className={format === 'reasons' || round.question.text.length > 105 ? 'long-question' : undefined}>{round.question.text}</h1>
-          <p className="stage-count" role="status" aria-label={`${answered} answered out of ${joined} guests who joined`}>{answered} / {joined}</p>
-          {showResults && (format === 'reasons' ? <ReasonResults key={round.id} round={round} /> : <div className="projection-results">
-            <div className="results">
+          <div className="stage-tools">
+            <p className="stage-count" role="status" aria-label={`${answered} answered out of ${joined} guests who joined`}>{answered} / {joined}</p>
+            {showResults && <button type="button" className="insights-toggle" ref={insightsButton}
+              aria-expanded={insightsOpen} aria-controls={insightsOpen ? 'smart-insights' : undefined}
+              onClick={() => insightsOpen ? closeInsights() : setInsightsRound(round.id)}>
+              Smart Insights <span aria-hidden="true">{insightsOpen ? '−' : '+'}</span>
+            </button>}
+          </div>
+          {showResults && <div className={insightsOpen ? 'projection-results has-insights' : 'projection-results'}>
+            {format === 'reasons' ? <ReasonResults key={round.id} round={round} /> : <div className="results">
               {options.length > 0 ? <>
                 <section className="option-section" aria-label="Preset options">
                   <OptionResults stats={presetStats} count={round.count} optionCount={optionCount} multi={format === 'multi'} />
@@ -461,9 +479,9 @@ export function Projector() {
                 </section>
               </> : <ResponseBoard answers={written} themes={format === 'points' ? [] : themes} onOpen={setSelected}
                 title={format === 'points' ? 'Action board' : themes.length ? 'Emerging themes and responses' : null} />}
-            </div>
-            <ProjectorAnalysis round={round} />
-          </div>)}
+            </div>}
+            {insightsOpen && <ProjectorAnalysis round={round} onClose={closeInsights} />}
+          </div>}
           {!shown && <p className="stage-sub">{round.status === 'open' ? 'Send your answer from your phone.' : ''}</p>}
           {focused.length > 0 && <div className="spotlight" role="dialog" aria-modal="false" aria-label="Spotlighted response">
             {focused.map(answer => <div className="spotlight-answer" key={answer.id}>
@@ -483,7 +501,7 @@ function ReasonResults({ round }) {
     .map((text, index) => ({ id: `${answer.id}:${index}`, text })));
   const active = reasons.find(reason => reason.id === selected);
   const columns = Math.min(5, Math.max(2, Math.ceil(reasons.length / 9)));
-  return <div className="projection-results">
+  return <>
     <section aria-label="Submitted reasons">
       <h2>{reasons.length} {reasons.length === 1 ? 'reason' : 'reasons'}</h2>
       <div className="reason-grid" style={{ '--reason-columns': columns }}>
@@ -491,12 +509,11 @@ function ReasonResults({ round }) {
           onClick={() => setSelected(reason.id)}><span>{reason.text}</span></button>)}
       </div>
     </section>
-    <ProjectorAnalysis round={round} />
     {active && !round.spotlight && <div className="spotlight" role="dialog" aria-label="Full reason">
       <p>{active.text}</p>
       <button type="button" className="quiet" onClick={() => setSelected(null)}>Back to reasons</button>
     </div>}
-  </div>;
+  </>;
 }
 
 function AnalysisContent({ analysis }) {
@@ -515,16 +532,24 @@ function AnalysisContent({ analysis }) {
   </>;
 }
 
-function ProjectorAnalysis({ round: { analysis, analysisStatus, status, count } }) {
-  return <aside className="projector-analysis analysis-content" aria-label="Gemini analysis">
-    <h2>Gemini analysis</h2>
-    <div role="status">
-      {analysisStatus === 'running' ? <p>Reviewing the responses…</p>
-        : analysisStatus === 'failed' ? <p>Analysis unavailable. The moderator can retry.</p>
-          : !analysis && <p>{status === 'open' ? 'Analysis starts when the round closes.'
-            : count ? 'The moderator can generate analysis.' : 'No responses to analyse.'}</p>}
+function ProjectorAnalysis({ round: { analysis, analysisStatus, status, count }, onClose }) {
+  const closeButton = useRef(null);
+  useEffect(() => { closeButton.current?.focus(); }, []);
+  return <aside className="projector-analysis analysis-content" id="smart-insights" aria-labelledby="smart-insights-title"
+    onKeyDown={event => { if (event.key === 'Escape') onClose(); }}>
+    <div className="insights-heading">
+      <h2 id="smart-insights-title">Smart Insights</h2>
+      <button type="button" className="quiet" ref={closeButton} onClick={onClose}>Close</button>
     </div>
-    {analysis && <AnalysisContent analysis={analysis} />}
+    <div className="insights-body" tabIndex={0} aria-label="Insight details">
+      <div role="status">
+        {analysisStatus === 'running' ? <p>Reviewing the responses…</p>
+          : analysisStatus === 'failed' ? <p>Analysis unavailable. The moderator can retry.</p>
+            : !analysis && <p>{status === 'open' ? 'Analysis starts when the round closes.'
+              : count ? 'The moderator can generate analysis.' : 'No responses to analyse.'}</p>}
+      </div>
+      {analysis && <AnalysisContent analysis={analysis} />}
+    </div>
   </aside>;
 }
 
